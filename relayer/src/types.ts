@@ -1,5 +1,5 @@
 /**
- * Simple types for TON Fusion+ relayer
+ * Types for TON Fusion+ relayer (event listener, not resolver)
  */
 
 export interface RelayerConfig {
@@ -80,4 +80,20 @@ export interface RelayerError extends Error {
     code: string;
     chain?: string;
     orderId?: string;
+}
+
+export interface RelayerEvent {
+    type: 'escrow_created' | 'escrow_withdrawal' | 'escrow_refund' | 'order_timeout' | 'fusion_order';
+    escrowType?: 'source' | 'destination';
+    orderId?: string;
+    transaction?: string;
+    timestamp: number;
+    data?: any;
+}
+
+export interface RelayerNotification {
+    resolver: string;
+    event: RelayerEvent;
+    retries: number;
+    lastAttempt: number;
 }

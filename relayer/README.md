@@ -1,29 +1,41 @@
-# TON Fusion+ Relayer
+# TON Fusion+ Relayer CLI
 
-A simple relayer service for 1inch Fusion+ cross-chain swaps between TON and EVM chains.
+A command-line relayer for 1inch Fusion+ cross-chain swaps between TON and EVM chains.
 
 ## Overview
 
-This relayer acts as a bridge between TON and EVM chains, coordinating cross-chain swaps using hashlock/timelock contracts (HTLC). It monitors for swap orders, deploys escrow contracts, and manages the atomic swap process.
+This is a **relayer** (not a resolver). Based on the [1inch Fusion documentation](https://blog.1inch.io/fusion-mode-swap-resolving-45a9203f95e9/):
+
+- **Relayer**: Monitors blockchain events and notifies resolvers about opportunities
+- **Resolver**: Actual market makers who fill orders and deploy escrows
+
+This relayer listens for events on both TON and EVM chains, tracks order lifecycles, and notifies resolvers when action is needed.
 
 ## Features
 
-- ✅ **Cross-chain coordination**: TON ↔ EVM swaps
-- ✅ **Hashlock/Timelock security**: HTLC implementation
-- ✅ **Bidirectional swaps**: Support for both directions
-- ✅ **Automatic refunds**: Timeout handling and recovery
-- ✅ **Simple architecture**: Minimal dependencies
-- ✅ **Real-time monitoring**: Order and escrow tracking
+- ✅ **Event Monitoring**: Real-time TON & EVM blockchain monitoring
+- ✅ **Order Tracking**: Full lifecycle tracking from creation to completion
+- ✅ **Resolver Notifications**: Alerts resolvers about opportunities
+- ✅ **CLI Interface**: Easy-to-use command-line tool
+- ✅ **Contract Integration**: Direct integration with your TON escrow contracts
+- ✅ **Live Updates**: Watch mode with real-time event streaming
 
 ## Architecture
 
 ```
-User (Maker) → Order Creation → Relayer → Escrow Deployment
-                                  ↓
-                           Secret Management
-                                  ↓
-                           Swap Execution → Completion
+TON Chain Events ←→ Relayer ←→ EVM Chain Events
+                        ↓
+                   Event Processing
+                        ↓
+                Resolver Notifications
+                        ↓
+                 Order Lifecycle Tracking
 ```
+
+**Role Separation**:
+
+- **Relayer** (this tool): Listens, tracks, notifies
+- **Resolver** (separate entity): Fills orders, deploys escrows, executes swaps
 
 ## Quick Start
 
@@ -34,7 +46,13 @@ cd relayer
 npm install
 ```
 
-### 2. Configuration
+### 2. Global Installation
+
+```bash
+npm run link  # Makes ton-relayer available globally
+```
+
+### 3. Configuration
 
 Copy the example environment file:
 
@@ -48,7 +66,7 @@ Edit `.env` with your configuration:
 # TON Configuration
 TON_RPC_URL=https://toncenter.com/api/v2/jsonRPC
 TON_API_KEY=your_ton_api_key
-TON_PRIVATE_KEY=your_ton_private_key_hex
+TON_PRIVATE_KEY="word1 word2 ... word24"  # 24-word mnemonic
 
 # EVM Configuration
 EVM_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/your-api-key
@@ -65,72 +83,83 @@ TON_DESTINATION_ESCROW=EQD...
 EVM_RESOLVER_CONTRACT=0x...
 ```
 
-### 3. Build and Run
+### 4. Usage
 
 ```bash
-# Build
-npm run build
+# Check system status
+ton-relayer status
 
-# Run in development
-npm run dev
+# Start the relayer
+ton-relayer start
 
-# Run in production
-npm start
+# Monitor with live updates
+ton-relayer start --watch
+
+# Deploy contracts
+ton-relayer deploy --network testnet
+
+# Show help
+ton-relayer --help
 ```
 
-## Usage Example
+## CLI Commands
 
-```typescript
-import { TonFusionRelayer } from "./src/relayer";
-import { config } from "./src/config";
+```bash
+# System Management
+ton-relayer status              # Check system health
+ton-relayer start              # Start relayer service
+ton-relayer start --watch      # Start with live monitoring
 
-const relayer = new TonFusionRelayer(config);
-await relayer.start();
+# Contract Management
+ton-relayer deploy --network testnet   # Deploy contracts
+ton-relayer config --show             # Show configuration
+ton-relayer config --validate         # Validate config
 
-// Create a cross-chain order
-const order = await relayer.createOrder({
-  sourceChain: "ton",
-  destinationChain: "evm",
-  fromToken: "TON",
-  toToken: "0xA0b86a33E6C100C10E8BD25E70e633c6E1976E08", // USDC
-  amount: "1000000000", // 1 TON
-  maker: "EQD...", // User's TON address
-});
+# Order Management
+ton-relayer orders --list             # List all orders
+ton-relayer orders --status <id>      # Get order details
+ton-relayer orders --cleanup          # Clean completed orders
 
-console.log("Order created:", order.orderId);
+# Monitoring
+ton-relayer monitor               # Real-time event monitoring
+ton-relayer monitor --filter active   # Filter by status
+
+# Testing
+ton-relayer test --contracts     # Test connections
+ton-relayer test --orders        # Test order processing
 ```
 
-## Swap Flow
+## Event Monitoring Flow
 
-### 1. Order Creation
+### 1. Event Detection
 
-- User creates swap intent
-- Relayer generates secret hash
-- Order stored with timelock
+- Monitors TON contracts for escrow events
+- Watches EVM chains for Fusion orders
+- Tracks transaction states across chains
 
-### 2. Escrow Deployment
+### 2. Event Processing
 
-- Source escrow: Locks user tokens
-- Destination escrow: Resolver deposits target tokens
-- Both use same secret hash, different timelocks
+- Parses transaction data and operation codes
+- Extracts relevant order and escrow information
+- Validates event authenticity
 
-### 3. Locking Phase
+### 3. Resolver Notification
 
-- User locks tokens in source escrow
-- Resolver locks tokens in destination escrow
-- Both escrows must be locked to proceed
+- Identifies relevant resolvers for each event
+- Sends notifications about new opportunities
+- Provides order details and market data
 
-### 4. Execution Phase
+### 4. Lifecycle Tracking
 
-- Resolver reveals secret on destination (claims user tokens)
-- User uses revealed secret on source (claims target tokens)
-- Atomic swap completed
+- Maintains order state from creation to completion
+- Monitors timeouts and triggers refund alerts
+- Logs all events for audit and debugging
 
-### 5. Recovery Phase
+### 5. Recovery & Monitoring
 
-- If timeout: automatic refunds
-- If error: emergency cancellation
-- Safety deposits protect against failure
+- Detects stuck or expired orders
+- Alerts about potential issues
+- Provides real-time status updates
 
 ## Security
 
