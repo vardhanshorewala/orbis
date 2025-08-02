@@ -49,12 +49,12 @@ async function interactWithSourceEscrow(provider: NetworkProvider, contractAddre
 
             case 'Check Can Withdraw':
                 const secret = await ui.input('Enter secret (hex):');
-                const canWithdraw = await sourceEscrow.canWithdraw(secret);
+                const canWithdraw = await sourceEscrow.canWithdraw(provider.provider(contractAddress), secret);
                 ui.write(`🔍 Can Withdraw: ${canWithdraw}`);
                 break;
 
             case 'Check Can Refund':
-                const canRefund = await sourceEscrow.canRefund();
+                const canRefund = await sourceEscrow.canRefund(provider.provider(contractAddress));
                 ui.write(`🔄 Can Refund: ${canRefund}`);
                 break;
 

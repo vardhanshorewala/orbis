@@ -4,13 +4,13 @@ import { NetworkProvider, compile } from '@ton/blueprint';
 
 export async function run(provider: NetworkProvider) {
     // Compile the contract
-    const destinationEscrowCode = await compile('ton_destination_escrow');
+    const destinationEscrowCode = await compile('TonDestinationEscrow');
 
     // Example configuration - replace with actual values
-    const resolverAddress = Address.parse('kQA0KqQqPkR4D2YhUqrKO5TuIdS7EuExO8B-nCFFVLEfqjW7');
-    const makerAddress = Address.parse('kQD4B7Q0_dP_7tl8crnGjYyMGF9RcK_EgBp7_CQ_b4QwKxSY');
+    const resolverAddress = Address.parse('0QAhSTtPS0xn3tk-JgMTnVccsoRM94KLnM-Z59FJLPhOm-tm'); // Your connected wallet
+    const makerAddress = Address.parse('0QAhSTtPS0xn3tk-JgMTnVccsoRM94KLnM-Z59FJLPhOm-tm'); // Same for demo
     const refundAddress = resolverAddress; // Usually the same as resolver for destination
-    const jettonMaster = Address.parse('kQD4B7Q0_dP_7tl8crnGjYyMGF9RcK_EgBp7_CQ_b4QwKxSY'); // Use null address for TON
+    const jettonMaster = Address.parse('EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c'); // Null address for TON
 
     const destinationEscrow = provider.open(
         TonDestinationEscrow.createFromConfig(
@@ -22,17 +22,17 @@ export async function run(provider: NetworkProvider) {
                 jettonMaster,
                 amount: toNano('10'), // 10 TON
                 safetyDeposit: toNano('0.1'), // 0.1 TON safety deposit
-                secretHash: '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+                secretHash: '0x12345678', // 4 bytes (32 bits) - minimal for testing
                 timelockDuration: 3600, // 1 hour
                 finalityTimelock: 600, // 10 minutes
-                merkleRoot: '0x0000000000000000000000000000000000000000000000000000000000000000',
+                merkleRoot: '0x00000000', // 4 bytes (32 bits) - minimal for testing
                 exclusivePeriod: 1800, // 30 minutes exclusive period for resolver
             },
             destinationEscrowCode
         )
     );
 
-    const deployAmount = toNano('0.5'); // Amount to send for deployment
+    const deployAmount = toNano('0.1'); // Amount to send for deployment
 
     await destinationEscrow.sendDeploy(provider.sender(), deployAmount);
 

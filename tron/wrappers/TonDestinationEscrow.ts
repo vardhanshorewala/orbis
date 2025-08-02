@@ -25,19 +25,25 @@ export type TonDestinationEscrowConfig = {
 };
 
 export function tonDestinationEscrowConfigToCell(config: TonDestinationEscrowConfig): Cell {
-    return beginCell()
-        .storeAddress(config.resolverAddress)
-        .storeAddress(config.makerAddress)
+    // Create reference cell with additional addresses and data
+    const refCell = beginCell()
         .storeAddress(config.refundAddress)
-        .storeUint(config.assetType, 8)
         .storeAddress(config.jettonMaster)
-        .storeCoins(config.amount)
-        .storeCoins(config.safetyDeposit)
         .storeBuffer(Buffer.from(config.secretHash.replace('0x', ''), 'hex'))
         .storeUint(config.timelockDuration, 32)
         .storeUint(config.finalityTimelock, 32)
         .storeBuffer(Buffer.from(config.merkleRoot.replace('0x', ''), 'hex'))
         .storeUint(config.exclusivePeriod, 32)
+        .endCell();
+
+    // Main cell with essential data only
+    return beginCell()
+        .storeAddress(config.resolverAddress)
+        .storeAddress(config.makerAddress)
+        .storeUint(config.assetType, 8)
+        .storeCoins(config.amount)
+        .storeCoins(config.safetyDeposit)
+        .storeRef(refCell)
         .endCell();
 }
 
