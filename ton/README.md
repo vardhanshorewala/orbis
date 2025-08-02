@@ -33,7 +33,7 @@ The bridge uses two main escrow contracts:
 ## 📁 Project Structure
 
 ```
-tron/
+ton/
 ├── contracts/               # Smart contracts (FunC)
 │   ├── imports/            # Shared utilities and constants
 │   │   ├── constants.fc    # Contract constants
