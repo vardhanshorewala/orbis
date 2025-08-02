@@ -1,4 +1,4 @@
-;; TON Source Escrow HTLC Contract for 1inch Fusion+
+;; TON Source Escrow HTLC Contract for 1inch Fusion+ (Simplified)
 ;; This contract locks assets on the source chain with hashlock/timelock
 
 #include "imports/stdlib.fc";
@@ -9,7 +9,7 @@
 const int OP_CREATE_ESCROW = 0x1;
 const int OP_WITHDRAW = 0x2;
 const int OP_REFUND = 0x3;
-const int OP_UPDATE_STATUS = 0x4;
+const int OP_LOCK_ESCROW = 0x5;
 const int OP_JETTON_TRANSFER = 0x178d4519;
 const int OP_JETTON_NOTIFICATION = 0x7362d09c;
 
@@ -18,177 +18,170 @@ const int STATUS_CREATED = 1;
 const int STATUS_LOCKED = 2;
 const int STATUS_WITHDRAWN = 3;
 const int STATUS_REFUNDED = 4;
-const int STATUS_EXPIRED = 5;
 
-;; Error codes are defined in imports/constants.fc
-
-;; Storage layout
-;; escrow_id (uint256)
+;; Simplified storage layout with reference cell to avoid cell size limits:
 ;; maker_address (MsgAddress)
 ;; resolver_address (MsgAddress) 
-;; target_address (MsgAddress)
-;; refund_address (MsgAddress)
 ;; asset_type (uint8) - 0 for TON, 1 for Jetton
-;; jetton_master (MsgAddress) - only if asset_type = 1
 ;; amount (Coins)
 ;; safety_deposit (Coins)
-;; secret_hash (uint256)
-;; timelock_duration (uint32)
-;; finality_timelock (uint32)
+;; ref_cell containing:
+;;   target_address (MsgAddress)
+;;   refund_address (MsgAddress)
+;;   jetton_master (MsgAddress) - only if asset_type = 1
+;;   secret_hash (32 bits for testing)
+;;   timelock_duration (uint32)
+;;   finality_timelock (uint32)
 ;; created_at (uint32)
 ;; status (uint8)
-;; merkle_root (uint256) - for partial fills
-;; fill_percentage (uint32)
 
-(slice, slice, slice, slice, slice, int, slice, int, int, int, int, int, int, int, int, int) load_data() inline {
+(slice, slice, slice, slice, int, slice, int, int, int, int, int, int, int) load_data() inline {
     slice ds = get_data().begin_parse();
-    return (
-        ds~load_msg_addr(),      ;; escrow_id  
-        ds~load_msg_addr(),      ;; maker_address
-        ds~load_msg_addr(),      ;; resolver_address
-        ds~load_msg_addr(),      ;; target_address
-        ds~load_msg_addr(),      ;; refund_address
-        ds~load_uint(8),         ;; asset_type
-        ds~load_msg_addr(),      ;; jetton_master
-        ds~load_coins(),         ;; amount
-        ds~load_coins(),         ;; safety_deposit
-        ds~load_uint(256),       ;; secret_hash
-        ds~load_uint(32),        ;; timelock_duration
-        ds~load_uint(32),        ;; finality_timelock
-        ds~load_uint(32),        ;; created_at
-        ds~load_uint(8),         ;; status
-        ds~load_uint(256),       ;; merkle_root
-        ds~load_uint(32)         ;; fill_percentage
-    );
-}
-
-() save_data(slice escrow_id, slice maker_address, slice resolver_address, slice target_address, 
-             slice refund_address, int asset_type, slice jetton_master, int amount, int safety_deposit,
-             int secret_hash, int timelock_duration, int finality_timelock, int created_at, 
-             int status, int merkle_root, int fill_percentage) impure inline {
-    set_data(begin_cell()
-        .store_slice(escrow_id)
-        .store_slice(maker_address)
-        .store_slice(resolver_address)
-        .store_slice(target_address)
-        .store_slice(refund_address)
-        .store_uint(asset_type, 8)
-        .store_slice(jetton_master)
-        .store_coins(amount)
-        .store_coins(safety_deposit)
-        .store_uint(secret_hash, 256)
-        .store_uint(timelock_duration, 32)
-        .store_uint(finality_timelock, 32)
-        .store_uint(created_at, 32)
-        .store_uint(status, 8)
-        .store_uint(merkle_root, 256)
-        .store_uint(fill_percentage, 32)
-        .end_cell());
-}
-
-;; Verify secret against hash (supports partial fills with Merkle proofs)
-int verify_secret(int secret_hash, slice secret, slice merkle_proof, int fill_amount) inline {
-    ;; For full fills, verify direct hash
-    if (merkle_proof.slice_empty?()) {
-        int computed_hash = string_hash(secret);
-        return computed_hash == secret_hash;
-    }
+    slice maker_address = ds~load_msg_addr();
+    slice resolver_address = ds~load_msg_addr();
+    int asset_type = ds~load_uint(8);
+    int amount = ds~load_coins();
+    int safety_deposit = ds~load_coins();
     
-    ;; For partial fills, verify Merkle proof
-    int leaf_hash = string_hash(secret);
-    slice proof = merkle_proof;
-    int current_hash = leaf_hash;
+    slice ref_cell = ds~load_ref().begin_parse();
+    slice target_address = ref_cell~load_msg_addr();
+    slice refund_address = ref_cell~load_msg_addr();
+    slice jetton_master = ref_cell~load_msg_addr();
+    int secret_hash = ref_cell~load_uint(32); ;; 32 bits for testing
+    int timelock_duration = ref_cell~load_uint(32);
+    int finality_timelock = ref_cell~load_uint(32);
     
-    while (~ proof.slice_empty?()) {
-        int sibling = proof~load_uint(256);
-        int is_right = proof~load_uint(1);
-        
-        if (is_right) {
-            current_hash = string_hash(begin_cell()
-                .store_uint(sibling, 256)
-                .store_uint(current_hash, 256)
-                .end_cell().begin_parse());
-        } else {
-            current_hash = string_hash(begin_cell()
-                .store_uint(current_hash, 256)
-                .store_uint(sibling, 256)
-                .end_cell().begin_parse());
+    ;; Safe loading of runtime fields - default to 0 if not present
+    int created_at = 0;
+    int status = 0;
+    if (~ ds.slice_empty?()) {
+        created_at = ds~load_uint(32);
+        if (~ ds.slice_empty?()) {
+            status = ds~load_uint(8);
         }
     }
     
-    return current_hash == secret_hash;
+    return (maker_address, resolver_address, target_address, refund_address,
+            asset_type, jetton_master, amount, safety_deposit, secret_hash,
+            timelock_duration, finality_timelock, created_at, status);
 }
 
-;; Create escrow with parameters from 1inch SDK
-() create_escrow(int balance, slice sender_address, slice maker_address, slice resolver_address, 
-                slice target_address, slice refund_address, int asset_type, slice jetton_master,
-                int amount, int safety_deposit, int secret_hash, int timelock_duration, 
-                int finality_timelock, int merkle_root) impure {
+() save_data(slice maker_address, slice resolver_address, slice target_address, slice refund_address,
+             int asset_type, slice jetton_master, int amount, int safety_deposit, int secret_hash,
+             int timelock_duration, int finality_timelock, int created_at, int status) impure inline {
     
-    throw_unless(ERROR_INSUFFICIENT_BALANCE, balance >= amount + safety_deposit);
+    cell ref_cell = begin_cell()
+        .store_slice(target_address)
+        .store_slice(refund_address)
+        .store_slice(jetton_master)
+        .store_uint(secret_hash, 32) ;; 32 bits for testing
+        .store_uint(timelock_duration, 32)
+        .store_uint(finality_timelock, 32)
+        .end_cell();
+    
+    set_data(begin_cell()
+        .store_slice(maker_address)
+        .store_slice(resolver_address)
+        .store_uint(asset_type, 8)
+        .store_coins(amount)
+        .store_coins(safety_deposit)
+        .store_ref(ref_cell)
+        .store_uint(created_at, 32)
+        .store_uint(status, 8)
+        .end_cell());
+}
+
+;; Simple secret verification - full swap only (32-bit hash for testing)
+int verify_secret(int secret_hash, slice secret) inline {
+    ;; Calculate SHA256 hash of the secret
+    int secret_bits = secret.slice_bits();
+    
+    ;; For testing with 32-bit values, we'll hash the secret properly
+    ;; Create a cell with the secret data
+    cell secret_cell = begin_cell()
+        .store_slice(secret)
+        .end_cell();
+    
+    ;; Calculate SHA256 hash and take first 32 bits for comparison
+    int calculated_hash = secret_cell.cell_hash() >> 224; ;; Take first 32 bits of 256-bit hash
+    
+    return calculated_hash == secret_hash;
+}
+
+;; Create escrow - initialize with config data
+() create_escrow(int msg_value) impure {
+    ;; Load config from init data (same format as storage but without runtime fields)
+    slice ds = get_data().begin_parse();
+    slice maker_address = ds~load_msg_addr();
+    slice resolver_address = ds~load_msg_addr();
+    int asset_type = ds~load_uint(8);
+    int amount = ds~load_coins();
+    int safety_deposit = ds~load_coins();
+    
+    slice ref_cell = ds~load_ref().begin_parse();
+    slice target_address = ref_cell~load_msg_addr();
+    slice refund_address = ref_cell~load_msg_addr();
+    slice jetton_master = ref_cell~load_msg_addr();
+    int secret_hash = ref_cell~load_uint(32); ;; 32 bits for testing
+    int timelock_duration = ref_cell~load_uint(32);
+    int finality_timelock = ref_cell~load_uint(32);
+    
+    ;; For deployment, check if the message value is sufficient
+    ;; We need at least the escrow amount + safety deposit + some gas
+    int min_required = amount + safety_deposit + 50000000; ;; 0.05 TON for gas
+    throw_unless(ERROR_INSUFFICIENT_BALANCE, msg_value >= min_required);
     
     int now_time = now();
-    slice escrow_id = begin_cell()
-        .store_uint(now_time, 32)
-        .store_slice(maker_address)
-        .store_uint(secret_hash, 256)
-        .end_cell().begin_parse();
     
-    save_data(escrow_id, maker_address, resolver_address, target_address, refund_address,
-              asset_type, jetton_master, amount, safety_deposit, secret_hash, 
-              timelock_duration, finality_timelock, now_time, STATUS_CREATED, merkle_root, 0);
-    
-
+    ;; Save with runtime state
+    save_data(maker_address, resolver_address, target_address, refund_address,
+              asset_type, jetton_master, amount, safety_deposit, secret_hash,
+              timelock_duration, finality_timelock, now_time, STATUS_CREATED);
 }
 
-;; Lock escrow after finality period
+;; Lock escrow after finality period (called by resolver)
 () lock_escrow(slice sender_address) impure {
-    var (escrow_id, maker_address, resolver_address, target_address, refund_address,
-         asset_type, jetton_master, amount, safety_deposit, secret_hash, timelock_duration,
-         finality_timelock, created_at, status, merkle_root, fill_percentage) = load_data();
+    var (maker_address, resolver_address, target_address, refund_address,
+         asset_type, jetton_master, amount, safety_deposit, secret_hash,
+         timelock_duration, finality_timelock, created_at, status) = load_data();
     
     throw_unless(ERROR_INVALID_RESOLVER, equal_slices(sender_address, resolver_address));
     throw_unless(101, status == STATUS_CREATED);
     throw_unless(102, now() >= created_at + finality_timelock);
     
-    save_data(escrow_id, maker_address, resolver_address, target_address, refund_address,
-              asset_type, jetton_master, amount, safety_deposit, secret_hash, 
-              timelock_duration, finality_timelock, created_at, STATUS_LOCKED, merkle_root, fill_percentage);
-              
-
+    save_data(maker_address, resolver_address, target_address, refund_address,
+              asset_type, jetton_master, amount, safety_deposit, secret_hash,
+              timelock_duration, finality_timelock, created_at, STATUS_LOCKED);
 }
 
-;; Withdraw with secret (callable by resolver)
-() withdraw_with_secret(slice sender_address, slice secret, slice merkle_proof, int withdraw_amount) impure {
-    var (escrow_id, maker_address, resolver_address, target_address, refund_address,
-         asset_type, jetton_master, amount, safety_deposit, secret_hash, timelock_duration,
-         finality_timelock, created_at, status, merkle_root, fill_percentage) = load_data();
+;; Withdraw with secret (full amount only - called by resolver)
+() withdraw_with_secret(slice sender_address, slice secret) impure {
+    var (maker_address, resolver_address, target_address, refund_address,
+         asset_type, jetton_master, amount, safety_deposit, secret_hash,
+         timelock_duration, finality_timelock, created_at, status) = load_data();
     
     throw_unless(ERROR_INVALID_RESOLVER, equal_slices(sender_address, resolver_address));
     throw_unless(103, status == STATUS_LOCKED);
-    throw_unless(ERROR_INVALID_SECRET, verify_secret(secret_hash, secret, merkle_proof, withdraw_amount));
+    throw_unless(ERROR_INVALID_SECRET, verify_secret(secret_hash, secret));
     
-    int new_fill_percentage = fill_percentage + withdraw_amount;
-    throw_unless(104, new_fill_percentage <= amount);
-    
-    ;; Transfer assets to target address
+    ;; Transfer full amount to target address
     if (asset_type == 0) {
-        ;; TON transfer
+        ;; TON transfer - send full amount
         send_raw_message(begin_cell()
             .store_uint(0x10, 6)
             .store_slice(target_address)
-            .store_coins(withdraw_amount)
+            .store_coins(amount)
             .store_uint(0, 107)
             .end_cell(), 1);
     } else {
-        ;; Jetton transfer
+        ;; Jetton transfer - send full amount
         send_raw_message(begin_cell()
             .store_uint(0x18, 6)
             .store_slice(jetton_master)
             .store_coins(100000000) ;; 0.1 TON for gas
             .store_uint(OP_JETTON_TRANSFER, 32)
             .store_uint(0, 64) ;; query_id
-            .store_coins(withdraw_amount)
+            .store_coins(amount)
             .store_slice(target_address)
             .store_slice(target_address) ;; response_destination
             .store_uint(0, 1) ;; custom_payload
@@ -205,53 +198,46 @@ int verify_secret(int secret_hash, slice secret, slice merkle_proof, int fill_am
         .store_uint(0, 107)
         .end_cell(), 1);
     
-    ;; Update status
-    int new_status = (new_fill_percentage == amount) ? STATUS_WITHDRAWN : STATUS_LOCKED;
-    save_data(escrow_id, maker_address, resolver_address, target_address, refund_address,
-              asset_type, jetton_master, amount, safety_deposit, secret_hash, 
-              timelock_duration, finality_timelock, created_at, new_status, merkle_root, new_fill_percentage);
-    
-
+    ;; Mark as withdrawn
+    save_data(maker_address, resolver_address, target_address, refund_address,
+              asset_type, jetton_master, amount, safety_deposit, secret_hash,
+              timelock_duration, finality_timelock, created_at, STATUS_WITHDRAWN);
 }
 
 ;; Refund after timeout (callable by maker or resolver)
 () refund_escrow(slice sender_address) impure {
-    var (escrow_id, maker_address, resolver_address, target_address, refund_address,
-         asset_type, jetton_master, amount, safety_deposit, secret_hash, timelock_duration,
-         finality_timelock, created_at, status, merkle_root, fill_percentage) = load_data();
+    var (maker_address, resolver_address, target_address, refund_address,
+         asset_type, jetton_master, amount, safety_deposit, secret_hash,
+         timelock_duration, finality_timelock, created_at, status) = load_data();
     
     throw_unless(105, equal_slices(sender_address, maker_address) | equal_slices(sender_address, resolver_address));
     throw_unless(106, (status == STATUS_LOCKED) | (status == STATUS_CREATED));
     throw_unless(ERROR_TIMEOUT_NOT_REACHED, now() >= created_at + timelock_duration);
     
-    int remaining_amount = amount - fill_percentage;
-    
-    ;; Refund remaining assets to maker
-    if (remaining_amount > 0) {
-        if (asset_type == 0) {
-            ;; TON refund
-            send_raw_message(begin_cell()
-                .store_uint(0x10, 6)
-                .store_slice(refund_address)
-                .store_coins(remaining_amount)
-                .store_uint(0, 107)
-                .end_cell(), 1);
-        } else {
-            ;; Jetton refund
-            send_raw_message(begin_cell()
-                .store_uint(0x18, 6)
-                .store_slice(jetton_master)
-                .store_coins(100000000)
-                .store_uint(OP_JETTON_TRANSFER, 32)
-                .store_uint(0, 64)
-                .store_coins(remaining_amount)
-                .store_slice(refund_address)
-                .store_slice(refund_address)
-                .store_uint(0, 1)
-                .store_coins(50000000)
-                .store_uint(0, 1)
-                .end_cell(), 1);
-        }
+    ;; Refund full amount to refund address
+    if (asset_type == 0) {
+        ;; TON refund
+        send_raw_message(begin_cell()
+            .store_uint(0x10, 6)
+            .store_slice(refund_address)
+            .store_coins(amount)
+            .store_uint(0, 107)
+            .end_cell(), 1);
+    } else {
+        ;; Jetton refund
+        send_raw_message(begin_cell()
+            .store_uint(0x18, 6)
+            .store_slice(jetton_master)
+            .store_coins(100000000)
+            .store_uint(OP_JETTON_TRANSFER, 32)
+            .store_uint(0, 64)
+            .store_coins(amount)
+            .store_slice(refund_address)
+            .store_slice(refund_address)
+            .store_uint(0, 1)
+            .store_coins(50000000)
+            .store_uint(0, 1)
+            .end_cell(), 1);
     }
     
     ;; Refund safety deposit to resolver if they initiated refund
@@ -264,42 +250,38 @@ int verify_secret(int secret_hash, slice secret, slice merkle_proof, int fill_am
             .end_cell(), 1);
     }
     
-    save_data(escrow_id, maker_address, resolver_address, target_address, refund_address,
-              asset_type, jetton_master, amount, safety_deposit, secret_hash, 
-              timelock_duration, finality_timelock, created_at, STATUS_REFUNDED, merkle_root, fill_percentage);
-    
-
+    save_data(maker_address, resolver_address, target_address, refund_address,
+              asset_type, jetton_master, amount, safety_deposit, secret_hash,
+              timelock_duration, finality_timelock, created_at, STATUS_REFUNDED);
 }
 
 ;; Get escrow details (for 1inch SDK queries)
-(int, slice, slice, slice, slice, int, int, int, int, int, int, int) get_escrow_details() method_id {
-    var (escrow_id, maker_address, resolver_address, target_address, refund_address,
-         asset_type, jetton_master, amount, safety_deposit, secret_hash, timelock_duration,
-         finality_timelock, created_at, status, merkle_root, fill_percentage) = load_data();
+(int, slice, slice, slice, slice, int, slice, int, int, int, int) get_escrow_details() method_id {
+    var (maker_address, resolver_address, target_address, refund_address,
+         asset_type, jetton_master, amount, safety_deposit, secret_hash,
+         timelock_duration, finality_timelock, created_at, status) = load_data();
     
     return (status, maker_address, resolver_address, target_address, refund_address,
-            asset_type, amount, safety_deposit, timelock_duration, created_at, 
-            fill_percentage, (amount - fill_percentage));
+            asset_type, jetton_master, amount, safety_deposit, timelock_duration, created_at);
 }
 
-;; Check if escrow can be withdrawn
-int can_withdraw(slice secret, slice merkle_proof, int withdraw_amount) method_id {
-    var (escrow_id, maker_address, resolver_address, target_address, refund_address,
-         asset_type, jetton_master, amount, safety_deposit, secret_hash, timelock_duration,
-         finality_timelock, created_at, status, merkle_root, fill_percentage) = load_data();
+;; Check if escrow can be withdrawn with given secret
+int can_withdraw(slice secret) method_id {
+    var (maker_address, resolver_address, target_address, refund_address,
+         asset_type, jetton_master, amount, safety_deposit, secret_hash,
+         timelock_duration, finality_timelock, created_at, status) = load_data();
     
     if (status != STATUS_LOCKED) { return 0; }
-    if (fill_percentage + withdraw_amount > amount) { return 0; }
-    if (~ verify_secret(secret_hash, secret, merkle_proof, withdraw_amount)) { return 0; }
+    if (~ verify_secret(secret_hash, secret)) { return 0; }
     
     return -1;
 }
 
 ;; Check if escrow can be refunded
 int can_refund() method_id {
-    var (escrow_id, maker_address, resolver_address, target_address, refund_address,
-         asset_type, jetton_master, amount, safety_deposit, secret_hash, timelock_duration,
-         finality_timelock, created_at, status, merkle_root, fill_percentage) = load_data();
+    var (maker_address, resolver_address, target_address, refund_address,
+         asset_type, jetton_master, amount, safety_deposit, secret_hash,
+         timelock_duration, finality_timelock, created_at, status) = load_data();
     
     if ((status != STATUS_LOCKED) & (status != STATUS_CREATED)) { return 0; }
     if (now() < created_at + timelock_duration) { return 0; }
@@ -308,46 +290,52 @@ int can_refund() method_id {
 }
 
 () recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
-    if (in_msg_body.slice_empty?()) { return (); }
-    
+    ;; Parse message flags
     slice cs = in_msg_full.begin_parse();
     int flags = cs~load_uint(4);
-    slice sender_address = cs~load_msg_addr();
     
-    int op = in_msg_body~load_uint(32);
-    int query_id = in_msg_body~load_uint(64);
-    
-    if (op == OP_CREATE_ESCROW) {
-        slice maker_address = in_msg_body~load_msg_addr();
-        slice resolver_address = in_msg_body~load_msg_addr();
-        slice target_address = in_msg_body~load_msg_addr();
-        slice refund_address = in_msg_body~load_msg_addr();
-        int asset_type = in_msg_body~load_uint(8);
-        slice jetton_master = in_msg_body~load_msg_addr();
-        int amount = in_msg_body~load_coins();
-        int safety_deposit = in_msg_body~load_coins();
-        int secret_hash = in_msg_body~load_uint(256);
-        int timelock_duration = in_msg_body~load_uint(32);
-        int finality_timelock = in_msg_body~load_uint(32);
-        int merkle_root = in_msg_body~load_uint(256);
-        
-        create_escrow(my_balance, sender_address, maker_address, resolver_address, target_address, 
-                     refund_address, asset_type, jetton_master, amount, safety_deposit,
-                     secret_hash, timelock_duration, finality_timelock, merkle_root);
+    ;; Handle bounced messages
+    if (flags & 1) {
+        ;; This is a bounced message, just accept it to avoid further bounces
         return ();
     }
     
-    if (op == 0x2) { ;; lock_escrow
+    ;; Get sender address
+    slice sender_address = cs~load_msg_addr();
+    
+    ;; Handle empty messages (simple transfers)
+    if (in_msg_body.slice_empty?()) {
+        ;; Check if this is the initial deployment
+        var (maker_address, resolver_address, target_address, refund_address,
+             asset_type, jetton_master, amount, safety_deposit, secret_hash,
+             timelock_duration, finality_timelock, created_at, status) = load_data();
+        
+        ;; If status is 0, this is the deployment message
+        if (status == 0) {
+            create_escrow(msg_value);
+        }
+        ;; Otherwise, ignore empty messages
+        return ();
+    }
+    
+    ;; Parse operation
+    int op = in_msg_body~load_uint(32);
+    int query_id = in_msg_body~load_uint(64);
+    
+    ;; Handle operations
+    if (op == OP_CREATE_ESCROW) {
+        create_escrow(msg_value);
+        return ();
+    }
+    
+    if (op == OP_LOCK_ESCROW) {
         lock_escrow(sender_address);
         return ();
     }
     
     if (op == OP_WITHDRAW) {
         slice secret = in_msg_body~load_ref().begin_parse();
-        slice merkle_proof = in_msg_body~load_ref().begin_parse();
-        int withdraw_amount = in_msg_body~load_coins();
-        
-        withdraw_with_secret(sender_address, secret, merkle_proof, withdraw_amount);
+        withdraw_with_secret(sender_address, secret);
         return ();
     }
     
@@ -356,5 +344,6 @@ int can_refund() method_id {
         return ();
     }
     
+    ;; Unknown operation - throw to return funds
     throw(0xffff);
 } 

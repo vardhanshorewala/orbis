@@ -8,6 +8,13 @@ lerna-debug.log*
 orbis/node_modules/
 orbis/package-lock.json
 orbis/build/
+tron/node_modules/
+tron/package-lock.json
+tron/build/
+
+orbis-frontend/node_modules/
+orbis-frontend/package-lock.json
+orbis-frontend/build/
 
 # Build outputs
 dist/
