@@ -1,131 +1,146 @@
-# 1inch Fusion+ TON Implementation
+# Orbis - Cross-Chain Bridge
 
-A simple implementation of the 1inch Fusion+ protocol extended to support cross-chain atomic swaps between TON and EVM chains.
+A decentralized cross-chain bridge enabling seamless token swaps between TON and Ethereum networks.
 
-## Overview
+## 🌟 Features
 
-This project implements a basic relayer and resolver system for enabling secure cross-chain swaps using the 1inch Fusion+ protocol design principles. It follows the atomic swap pattern with hashlocks and timelocks to ensure trustless execution.
+- **Cross-Chain Swaps**: Swap tokens between TON and Ethereum (Sepolia testnet)
+- **Secure Escrow**: Smart contracts handle token custody during swaps
+- **Modern UI**: Dark-themed, responsive frontend with glassmorphism effects
+- **Multi-Wallet Support**:
+  - Ethereum: RainbowKit integration (MetaMask, WalletConnect, etc.)
+  - TON: TON Connect SDK integration
+- **Testnet Ready**: Configured for Sepolia (ETH) and TON Testnet
 
-## Project Structure
+## 🏗️ Architecture
 
 ```
-├── relayer/          # Monitors blockchain events and notifies resolvers
-├── resolver/         # Market maker that executes cross-chain swaps
-├── evm/             # EVM escrow contracts deployment
-└── tron/            # TON escrow contracts (FunC)
+orbis/
+├── orbis-frontend/     # Next.js frontend application
+├── tron/              # TON smart contracts (FunC)
+└── orbis/             # Additional project files
 ```
 
-## Components
+## 🚀 Quick Start
 
-### 1. Relayer (`/relayer`)
+### Prerequisites
 
-- Monitors TON and EVM blockchains for events
-- Detects new orders and escrow creations
-- Notifies resolvers about swap opportunities
-- Tracks order lifecycle and status
+- Node.js 18+ and npm
+- Git
 
-### 2. Resolver (`/resolver`)
+### Setup
 
-- Receives order notifications from relayer
-- Deploys escrow contracts on both chains
-- Executes atomic swaps
-- Handles refunds on timeout
+1. **Clone the repository**
 
-### 3. EVM Contracts (`/evm`)
+   ```bash
+   git clone <repository-url>
+   cd orbis
+   ```
 
-- EscrowFactory: Deploys escrow instances
-- EscrowSrc: Source chain escrow
-- EscrowDst: Destination chain escrow
-- Deployed on Ethereum Sepolia testnet
+2. **Set up the frontend**
 
-### 4. TON Contracts (`/tron`)
+   ```bash
+   cd orbis-frontend
+   npm install
+   ```
 
-- ton_source_escrow.fc: Source escrow for TON
-- ton_destination_escrow.fc: Destination escrow for TON
-- Written in FunC for TON blockchain
+3. **Configure environment variables**
 
-## Quick Start
+   ```bash
+   cp .env.local.example .env.local
+   # Edit .env.local with your values
+   ```
 
-### 1. Deploy EVM Contracts
+4. **Start development server**
+
+   ```bash
+   npm run dev
+   ```
+
+5. **Open your browser**
+   Navigate to `http://localhost:3000`
+
+## 📁 Project Structure
+
+- **`orbis-frontend/`**: Next.js application with T3 stack
+  - React 19, TypeScript, Tailwind CSS
+  - RainbowKit for Ethereum wallets
+  - TON Connect for TON wallets
+- **`tron/`**: TON blockchain smart contracts
+  - FunC contracts for escrow functionality
+  - Deployment and interaction scripts
+  - Test suites
+
+## 🔧 Environment Variables
+
+### Required
+
+- `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID`: Get from [WalletConnect Cloud](https://cloud.walletconnect.com/)
+- `NEXT_PUBLIC_TON_MANIFEST_URL`: URL to your TON Connect manifest
+
+### Optional
+
+- `NEXT_PUBLIC_ALCHEMY_ID`: Alchemy API key for better Ethereum RPC
+
+## 🌐 Networks
+
+### Ethereum
+
+- **Testnet**: Sepolia
+- **RPC**: Alchemy (recommended) or public endpoints
+
+### TON
+
+- **Testnet**: TON Testnet
+- **Explorer**: [TON Explorer](https://testnet.tonscan.org/)
+
+## 🛠️ Development
+
+### Frontend Development
 
 ```bash
-cd evm
-cp env.example .env
-# Configure .env with your mnemonic and RPC URLs
-./deploy-escrow-factory-simple.sh
+cd orbis-frontend
+npm run dev          # Start development server
+npm run build        # Build for production
+npm run lint         # Run ESLint
+npm run typecheck    # TypeScript type checking
 ```
 
-### 2. Start Relayer
+### Smart Contract Development
 
 ```bash
-cd relayer
-npm install
-cp env.example .env
-# Configure .env
-npm run dev -- start
+cd tron
+npm run build        # Compile contracts
+npm test            # Run tests
+npm run deploy      # Deploy contracts
 ```
 
-### 3. Start Resolver
+## 🎨 Design System
 
-```bash
-cd resolver
-npm install
-cp env.example .env
-# Configure .env with deployed factory address
-npm run dev -- start
-```
+The frontend uses a modern dark theme with:
 
-### 4. Run Demo Swap
+- **Colors**: Purple, cyan, and pink gradients
+- **Effects**: Glassmorphism, glows, and subtle animations
+- **Typography**: Geist font family
+- **Components**: Fully responsive design
 
-```bash
-# In resolver directory
-npm run dev -- demo
-```
+## 🔐 Security
 
-## Atomic Swap Flow
+- Smart contracts use escrow patterns for secure token custody
+- Frontend validates all user inputs
+- Testnet-only configuration prevents mainnet accidents
+- No private keys stored in frontend
 
-Based on 1inch Fusion+ whitepaper:
+## 🤝 Contributing
 
-1. **Announcement Phase**: Maker signs order, relayer broadcasts
-2. **Deposit Phase**: Resolver deploys escrows on both chains
-3. **Withdrawal Phase**: Secret revealed, assets claimed
-4. **Recovery Phase**: Refunds if swap fails
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-## Key Features
+## 📄 License
 
-- **Simple CLI Interface**: All components use command-line interface
-- **Atomic Execution**: Either both swaps succeed or both refund
-- **Timelock Safety**: Automatic refunds after timeout
-- **Extensible Design**: Easy to add new chains or tokens
+## This project is licensed under the MIT License.
 
-## Current Limitations
-
-This is a simplified implementation for demonstration:
-
-- Mock escrow deployments on TON (real contracts need deployment)
-- No Dutch auction mechanism (fixed pricing)
-- Basic profitability checks
-- CLI-based resolver triggering
-- No production-ready error handling
-
-## TODOs
-
-- [ ] Deploy and integrate real TON escrow contracts
-- [ ] Implement Dutch auction pricing
-- [ ] Add comprehensive test suite
-- [ ] Create REST API for relayer-resolver communication
-- [ ] Add WebSocket support for real-time updates
-- [ ] Implement proper gas optimization
-- [ ] Add monitoring and metrics
-- [ ] Support multiple resolvers
-- [ ] Add support for token swaps (Jettons/ERC20)
-
-## References
-
-- [1inch Fusion+ Whitepaper](https://1inch.io/assets/1inch-fusion-plus.pdf)
-- [1inch Cross-Chain Swap Contracts](https://github.com/1inch/cross-chain-swap)
-- [TON Documentation](https://docs.ton.org)
-
-## License
-
-MIT
+**⚠️ Testnet Only**: This application is currently configured for testnet use only. No real funds are at risk.
