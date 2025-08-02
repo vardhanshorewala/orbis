@@ -1,18 +1,17 @@
 import { compile } from '@ton/blueprint';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 
 /**
  * Script to compile TON contracts and output base64 encoded code
  * Use this to get the contract code for environment configuration
  */
-async function main() {
+export async function run() {
     console.log('🔨 Compiling TON contracts...\n');
 
     try {
         // Compile source escrow
         console.log('📦 Compiling TonSourceEscrow...');
         const sourceCode = await compile('TonSourceEscrow');
+
         const sourceBase64 = sourceCode.toBoc().toString('base64');
         console.log('✅ TonSourceEscrow compiled!');
         console.log('   Add to .env:');
@@ -37,5 +36,3 @@ async function main() {
         process.exit(1);
     }
 }
-
-main().catch(console.error);

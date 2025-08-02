@@ -424,4 +424,11 @@ export class EvmAdapter {
             default: return `Chain ${this.config.chainId}`;
         }
     }
+
+    /**
+     * Get wallet address
+     */
+    async getAddress(): Promise<string> {
+        return this.wallet.address;
+    }
 }

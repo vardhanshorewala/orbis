@@ -14,7 +14,6 @@
     },
     "dependencies": {
         "@1inch/fusion-sdk": "^2.3.6",
-        "@1inch/cross-chain-sdk": "^0.1.0",
         "@ton/ton": "^13.11.0",
         "@ton/crypto": "^3.2.0",
         "ethers": "^6.8.0",

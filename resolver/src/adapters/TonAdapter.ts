@@ -633,6 +633,13 @@ export class TonAdapter {
     }
 
     /**
+     * Get wallet address
+     */
+    async getAddress(): Promise<string> {
+        return this.wallet.address.toString();
+    }
+
+    /**
      * Helper: Get compiled contract code
      */
     private async getCompiledCode(type: 'source' | 'destination'): Promise<Cell> {

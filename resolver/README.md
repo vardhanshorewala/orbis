@@ -87,8 +87,22 @@ npm run dev -- status
 
 ### Run Demo Swap
 
+Simple demo (mock escrows):
+
 ```bash
 npm run dev -- demo
+```
+
+End-to-end demo with real escrow deployment:
+
+```bash
+npm run dev -- demo --type e2e
+```
+
+Cross-chain demo (full flow):
+
+```bash
+npm run dev -- demo --type cross-chain
 ```
 
 ### Process Order from Relayer

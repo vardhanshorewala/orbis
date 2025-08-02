@@ -188,7 +188,7 @@ program
 program
     .command('demo')
     .description('Run a demo swap')
-    .option('-t, --type <type>', 'Demo type: simple, e2e, or 1inch', 'simple')
+    .option('-t, --type <type>', 'Demo type: simple, e2e, or cross-chain', 'simple')
     .action(async (options) => {
         try {
             switch (options.type) {
@@ -199,9 +199,10 @@ program
                     break;
 
                 case '1inch':
-                    console.log(chalk.blue('🚀 Running 1inch SDK demo...'));
-                    const { executeEvmToTonSwap } = await import('./demo/1inch-integration');
-                    await executeEvmToTonSwap();
+                case 'cross-chain':
+                    console.log(chalk.blue('🚀 Running cross-chain demo...'));
+                    const { runCrossChainDemo } = await import('./demo/cross-chain-demo');
+                    await runCrossChainDemo();
                     break;
 
                 case 'simple':
