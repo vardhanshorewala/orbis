@@ -93,12 +93,19 @@ const int STATUS_REFUNDED = 4;
 
 ;; Simple secret verification - full swap only (32-bit hash for testing)
 int verify_secret(int secret_hash, slice secret) inline {
-    ;; For testing: Convert secret slice to int and compare directly
-    int secret_as_int = 0;
-    if (secret.slice_bits() >= 32) {
-        secret_as_int = secret~load_uint(32);
-    }
-    return secret_as_int == secret_hash;
+    ;; Calculate SHA256 hash of the secret
+    int secret_bits = secret.slice_bits();
+    
+    ;; For testing with 32-bit values, we'll hash the secret properly
+    ;; Create a cell with the secret data
+    cell secret_cell = begin_cell()
+        .store_slice(secret)
+        .end_cell();
+    
+    ;; Calculate SHA256 hash and take first 32 bits for comparison
+    int calculated_hash = secret_cell.cell_hash() >> 224; ;; Take first 32 bits of 256-bit hash
+    
+    return calculated_hash == secret_hash;
 }
 
 ;; Create escrow - initialize with config data

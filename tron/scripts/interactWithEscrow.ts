@@ -53,8 +53,15 @@ async function interactWithSourceEscrow(provider: NetworkProvider, contractAddre
                 break;
 
             case 'Check Can Withdraw':
-                const secret = await ui.input('Enter secret (hex):');
-                const canWithdraw = await sourceEscrow.canWithdraw(provider.provider(contractAddress), secret);
+                const checkSecretText = await ui.input('Enter secret:');
+                
+                // Convert text secret to hex string representing first 4 bytes
+                const checkSecretBuffer = Buffer.from(checkSecretText);
+                const checkSecretHex = checkSecretBuffer.slice(0, 4).toString('hex').padEnd(8, '0');
+                
+                ui.write(`🔐 Checking with secret: "${checkSecretText}" (hex: 0x${checkSecretHex})`);
+                
+                const canWithdraw = await sourceEscrow.canWithdraw(provider.provider(contractAddress), checkSecretHex);
                 ui.write(`🔍 Can Withdraw: ${canWithdraw}`);
                 break;
 
@@ -69,11 +76,17 @@ async function interactWithSourceEscrow(provider: NetworkProvider, contractAddre
                 break;
 
             case 'Send Withdraw':
-                const withdrawSecret = await ui.input('Enter secret (hex):');
+                const withdrawSecretText = await ui.input('Enter secret:');
+                
+                // Convert text secret to hex string representing first 4 bytes
+                const secretBuffer = Buffer.from(withdrawSecretText);
+                const secretHex = secretBuffer.slice(0, 4).toString('hex').padEnd(8, '0');
+                
+                ui.write(`🔐 Using secret: "${withdrawSecretText}" (hex: 0x${secretHex})`);
                 
                 await sourceEscrow.sendWithdraw(provider.sender(), {
                     value: toNano('0.05'),
-                    secret: withdrawSecret,
+                    secret: secretHex,
                 });
                 ui.write('✅ Withdraw message sent! (Full amount will be withdrawn)');
                 break;
