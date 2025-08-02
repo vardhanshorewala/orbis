@@ -1,0 +1,371 @@
+;; Orbis TON Escrow Contract
+;; Single-file Hash Time-Locked Contract (HTLC) for atomic swaps
+;; Supports both native TON and Jetton tokens
+
+;; ========================
+;; STANDARD LIBRARY FUNCTIONS
+;; ========================
+
+;; Basic utility functions
+int null?() asm "ISNULL";
+() throw_unless(int excno, int cond) impure asm "THROWARGIFNOT";
+() throw_if(int excno, int cond) impure asm "THROWARGIF";
+
+;; Cell manipulation
+builder begin_cell() asm "NEWC";
+cell end_cell(builder b) asm "ENDC";
+builder store_uint(builder b, int x, int len) asm(x len b) "STUX";
+builder store_int(builder b, int x, int len) asm(x len b) "STIX";
+builder store_slice(builder b, slice s) asm "STSLICER";
+builder store_coins(builder b, int x) asm "STGRAMS";
+
+;; Slice parsing
+slice begin_parse(cell c) asm "CTOS";
+int slice_empty?(slice s) asm "SEMPTY";
+(slice, int) load_uint(slice s, int len) asm(s len -> 1 0) "LDUX";
+(slice, int) load_int(slice s, int len) asm(s len -> 1 0) "LDIX";
+(slice, slice) load_msg_addr(slice s) asm(s -> 1 0) "LDMSGADDR";
+(slice, int) load_coins(slice s) asm(s -> 1 0) "LDGRAMS";
+slice skip_bits(slice s, int len) asm "SDSKIPFIRST";
+
+;; Contract storage and messages
+cell get_data() asm "c4 PUSH";
+() set_data(cell c) impure asm "c4 POP";
+slice get_sender() asm "SENDER";
+() send_raw_message(cell msg, int mode) impure asm "SENDRAWMSG";
+
+;; Time and hash functions
+int now() asm "NOW";
+int string_hash(slice s) asm "HASHSU";
+int equal_slices(slice a, slice b) asm "SDEQ";
+slice null() asm "PUSHNULL";
+int min(int x, int y) asm "MIN";
+int max(int x, int y) asm "MAX";
+
+;; ========================
+;; CONTRACT CONSTANTS
+;; ========================
+
+;; Escrow states
+const int ESCROW_UNINITIALIZED = 0;
+const int ESCROW_ACTIVE = 1;
+const int ESCROW_WITHDRAWN = 2;
+const int ESCROW_CANCELLED = 3;
+
+;; Operation codes
+const int OP_DEPOSIT = 0x44e607ef;
+const int OP_WITHDRAW = 0x0f8a7ea5;
+const int OP_CANCEL = 0x41c3e86c;
+const int OP_JETTON_TRANSFER = 0x0f8a7ea5;
+const int OP_JETTON_NOTIFY = 0x7362d09c;
+
+;; Error codes
+const int ERROR_ALREADY_INITIALIZED = 100;
+const int ERROR_NOT_ACTIVE = 101;
+const int ERROR_TOO_EARLY = 102;
+const int ERROR_INVALID_SECRET = 103;
+const int ERROR_UNAUTHORIZED = 104;
+const int ERROR_INVALID_AMOUNT = 105;
+
+;; Gas constants (in nanoTON)
+const int GAS_FOR_JETTON_TRANSFER = 100000000;  ;; 0.1 TON
+const int GAS_FOR_TON_TRANSFER = 50000000;      ;; 0.05 TON
+
+;; ========================
+;; STORAGE VARIABLES
+;; ========================
+
+global int status;                      ;; Contract status
+global slice maker;                     ;; Recipient address (gets funds on withdraw)
+global slice taker;                     ;; Depositor address (gets funds on cancel)
+global slice jetton_master;             ;; Jetton master address (null for native TON)
+global int amount;                      ;; Locked amount
+global int hash_lock;                   ;; SHA256 hash of the secret
+global int deployed_at;                 ;; Contract deployment timestamp
+global int withdrawal_time;             ;; When maker can withdraw
+global int public_withdrawal_time;      ;; When anyone can trigger withdrawal
+global int cancellation_time;           ;; When taker can cancel
+global int public_cancellation_time;    ;; When anyone can cancel
+global slice taker_jetton_wallet;       ;; Taker's jetton wallet (for jetton escrows)
+global slice maker_jetton_wallet;       ;; Maker's jetton wallet (for jetton escrows)
+
+;; ========================
+;; STORAGE FUNCTIONS
+;; ========================
+
+() load_data() impure {
+    slice ds = get_data().begin_parse();
+    
+    if (ds.slice_empty?()) {
+        status = ESCROW_UNINITIALIZED;
+        return ();
+    }
+    
+    status = ds~load_uint(2);
+    
+    if (status != ESCROW_UNINITIALIZED) {
+        maker = ds~load_msg_addr();
+        taker = ds~load_msg_addr();
+        jetton_master = ds~load_msg_addr();
+        amount = ds~load_coins();
+        hash_lock = ds~load_uint(256);
+        deployed_at = ds~load_uint(32);
+        withdrawal_time = ds~load_uint(32);
+        public_withdrawal_time = ds~load_uint(32);
+        cancellation_time = ds~load_uint(32);
+        public_cancellation_time = ds~load_uint(32);
+        
+        ;; Load jetton wallet addresses if this is a jetton escrow
+        if (~ jetton_master.null?()) {
+            taker_jetton_wallet = ds~load_msg_addr();
+            maker_jetton_wallet = ds~load_msg_addr();
+        }
+    }
+}
+
+() save_data() impure {
+    builder b = begin_cell()
+        .store_uint(status, 2);
+        
+    if (status != ESCROW_UNINITIALIZED) {
+        b = b.store_slice(maker)
+            .store_slice(taker)
+            .store_slice(jetton_master)
+            .store_coins(amount)
+            .store_uint(hash_lock, 256)
+            .store_uint(deployed_at, 32)
+            .store_uint(withdrawal_time, 32)
+            .store_uint(public_withdrawal_time, 32)
+            .store_uint(cancellation_time, 32)
+            .store_uint(public_cancellation_time, 32);
+            
+        ;; Store jetton wallet addresses if this is a jetton escrow
+        if (~ jetton_master.null?()) {
+            b = b.store_slice(taker_jetton_wallet)
+                .store_slice(maker_jetton_wallet);
+        }
+    }
+    
+    set_data(b.end_cell());
+}
+
+;; ========================
+;; CORE ESCROW FUNCTIONS
+;; ========================
+
+() initialize_escrow(slice maker_addr, slice sender_addr, int secret_hash, 
+                    int w_time, int pw_time, int c_time, int pc_time,
+                    int deposit_amount, slice jetton_master_addr,
+                    slice taker_wallet, slice maker_wallet) impure {
+    
+    load_data();
+    throw_unless(ERROR_ALREADY_INITIALIZED, status == ESCROW_UNINITIALIZED);
+    throw_unless(ERROR_INVALID_AMOUNT, deposit_amount > 0);
+    
+    ;; Initialize escrow state
+    status = ESCROW_ACTIVE;
+    maker = maker_addr;
+    taker = sender_addr;
+    jetton_master = jetton_master_addr;
+    amount = deposit_amount;
+    hash_lock = secret_hash;
+    deployed_at = now();
+    withdrawal_time = deployed_at + w_time;
+    public_withdrawal_time = deployed_at + pw_time;
+    cancellation_time = deployed_at + c_time;
+    public_cancellation_time = deployed_at + pc_time;
+    
+    ;; Set jetton wallets if this is a jetton escrow
+    if (~ jetton_master.null?()) {
+        taker_jetton_wallet = taker_wallet;
+        maker_jetton_wallet = maker_wallet;
+    }
+    
+    save_data();
+}
+
+() transfer_ton(slice recipient, int transfer_amount) impure {
+    send_raw_message(begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(recipient)
+        .store_coins(transfer_amount)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .end_cell(), 3);
+}
+
+() transfer_jetton(slice recipient_wallet, int transfer_amount) impure {
+    ;; Send jetton transfer message
+    send_raw_message(begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(taker_jetton_wallet)
+        .store_coins(GAS_FOR_JETTON_TRANSFER)
+        .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .store_uint(OP_JETTON_TRANSFER, 32)
+        .store_uint(0, 64)  ;; query_id
+        .store_coins(transfer_amount)
+        .store_slice(recipient_wallet)
+        .store_slice(recipient_wallet)  ;; response_destination
+        .store_uint(0, 1)  ;; custom_payload null
+        .store_coins(1)  ;; forward_ton_amount
+        .store_uint(0, 1)  ;; forward_payload empty
+        .end_cell(), 1);
+}
+
+;; ========================
+;; MAIN ESCROW OPERATIONS
+;; ========================
+
+() withdraw(slice secret) impure {
+    load_data();
+    throw_unless(ERROR_NOT_ACTIVE, status == ESCROW_ACTIVE);
+    
+    int current_time = now();
+    slice sender = get_sender();
+    
+    ;; Check authorization and timing
+    int can_withdraw = 0;
+    if (equal_slices(sender, maker)) {
+        throw_unless(ERROR_TOO_EARLY, current_time >= withdrawal_time);
+        can_withdraw = 1;
+    } elseif (current_time >= public_withdrawal_time) {
+        can_withdraw = 1;
+    }
+    
+    throw_unless(ERROR_UNAUTHORIZED, can_withdraw);
+    
+    ;; Verify secret matches hash lock
+    int secret_hash = string_hash(secret);
+    throw_unless(ERROR_INVALID_SECRET, secret_hash == hash_lock);
+    
+    ;; Transfer funds based on type
+    if (jetton_master.null?()) {
+        ;; Native TON transfer
+        transfer_ton(maker, amount - GAS_FOR_TON_TRANSFER);
+    } else {
+        ;; Jetton transfer
+        transfer_jetton(maker_jetton_wallet, amount);
+    }
+    
+    status = ESCROW_WITHDRAWN;
+    save_data();
+}
+
+() cancel() impure {
+    load_data();
+    throw_unless(ERROR_NOT_ACTIVE, status == ESCROW_ACTIVE);
+    
+    int current_time = now();
+    slice sender = get_sender();
+    
+    ;; Check authorization and timing
+    int can_cancel = 0;
+    if (equal_slices(sender, taker)) {
+        throw_unless(ERROR_TOO_EARLY, current_time >= cancellation_time);
+        can_cancel = 1;
+    } elseif (current_time >= public_cancellation_time) {
+        can_cancel = 1;
+    }
+    
+    throw_unless(ERROR_UNAUTHORIZED, can_cancel);
+    
+    ;; Return funds based on type
+    if (jetton_master.null?()) {
+        ;; Native TON transfer
+        transfer_ton(taker, amount - GAS_FOR_TON_TRANSFER);
+    } else {
+        ;; Jetton transfer
+        transfer_jetton(taker_jetton_wallet, amount);
+    }
+    
+    status = ESCROW_CANCELLED;
+    save_data();
+}
+
+;; ========================
+;; QUERY METHODS
+;; ========================
+
+;; Get current escrow status and details
+(int, slice, slice, slice, int, int, int, int, int, int, int) get_escrow_info() method_id {
+    load_data();
+    return (status, maker, taker, jetton_master, amount, hash_lock, deployed_at,
+            withdrawal_time, public_withdrawal_time, cancellation_time, public_cancellation_time);
+}
+
+;; Check if withdrawal is possible now
+int can_withdraw_now() method_id {
+    load_data();
+    if (status != ESCROW_ACTIVE) {
+        return 0;
+    }
+    int current_time = now();
+    return (current_time >= withdrawal_time) | (current_time >= public_withdrawal_time);
+}
+
+;; Check if cancellation is possible now
+int can_cancel_now() method_id {
+    load_data();
+    if (status != ESCROW_ACTIVE) {
+        return 0;
+    }
+    int current_time = now();
+    return (current_time >= cancellation_time) | (current_time >= public_cancellation_time);
+}
+
+;; Get time remaining until operations become available
+(int, int) get_time_locks() method_id {
+    load_data();
+    int current_time = now();
+    int withdraw_remaining = max(0, withdrawal_time - current_time);
+    int cancel_remaining = max(0, cancellation_time - current_time);
+    return (withdraw_remaining, cancel_remaining);
+}
+
+;; Get simple status
+int get_status() method_id {
+    load_data();
+    return status;
+}
+
+;; ========================
+;; MESSAGE HANDLER
+;; ========================
+
+() recv_internal(int my_balance, int msg_value, cell in_msg_full, slice in_msg_body) impure {
+    if (in_msg_body.slice_empty?()) {
+        return ();
+    }
+    
+    int op = in_msg_body~load_uint(32);
+    slice sender = get_sender();
+    
+    if (op == OP_DEPOSIT) {
+        ;; TON deposit
+        slice maker_addr = in_msg_body~load_msg_addr();
+        int secret_hash = in_msg_body~load_uint(256);
+        int w_time = in_msg_body~load_uint(32);
+        int pw_time = in_msg_body~load_uint(32);
+        int c_time = in_msg_body~load_uint(32);
+        int pc_time = in_msg_body~load_uint(32);
+        
+        initialize_escrow(maker_addr, sender, secret_hash, w_time, pw_time, 
+                         c_time, pc_time, msg_value, null(), null(), null());
+    }
+    elseif (op == OP_WITHDRAW) {
+        slice secret = in_msg_body~load_msg_addr();  ;; Simplified secret loading
+        withdraw(secret);
+    }
+    elseif (op == OP_CANCEL) {
+        cancel();
+    }
+    elseif (op == OP_JETTON_NOTIFY) {
+        ;; Handle jetton deposit notification
+        int query_id = in_msg_body~load_uint(64);
+        int jetton_amount = in_msg_body~load_coins();
+        slice from_address = in_msg_body~load_msg_addr();
+        
+        ;; Parse forward payload for escrow parameters
+        ;; In practice, would extract maker, secret_hash, time_locks, etc.
+        ;; For now, this is a placeholder for jetton deposit handling
+    }
+} 
