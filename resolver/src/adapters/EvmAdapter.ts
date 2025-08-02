@@ -6,7 +6,8 @@ import {
     formatEther,
     keccak256,
     toUtf8Bytes,
-    getAddress
+    getAddress,
+    HDNodeWallet
 } from 'ethers';
 import {
     CrossChainSwapOrder,
@@ -51,7 +52,8 @@ export class EvmAdapter {
     constructor(
         private config: {
             rpcUrl: string;
-            privateKey: string;
+            privateKey?: string;
+            mnemonic?: string;
             chainId: number;
             escrowFactoryAddress?: string;
         }
@@ -59,9 +61,20 @@ export class EvmAdapter {
 
     async initialize(): Promise<void> {
         try {
-            // Initialize provider and wallet
+            // Initialize provider
             this.provider = new JsonRpcProvider(this.config.rpcUrl);
-            this.wallet = new Wallet(this.config.privateKey, this.provider);
+
+            // Initialize wallet from mnemonic or private key
+            if (this.config.mnemonic) {
+                // Create wallet from mnemonic (using first account)
+                const hdWallet = HDNodeWallet.fromPhrase(this.config.mnemonic);
+                this.wallet = new Wallet(hdWallet.privateKey, this.provider);
+            } else if (this.config.privateKey) {
+                // Create wallet from private key
+                this.wallet = new Wallet(this.config.privateKey, this.provider);
+            } else {
+                throw new Error('Either mnemonic or privateKey must be provided');
+            }
 
             // Verify chain ID
             const network = await this.provider.getNetwork();

@@ -1,6 +1,6 @@
 import { TonClient, WalletContractV4, internal, Address } from '@ton/ton';
 import { mnemonicToPrivateKey } from '@ton/crypto';
-import { JsonRpcProvider, Wallet, Contract } from 'ethers';
+import { JsonRpcProvider, Wallet, Contract, HDNodeWallet } from 'ethers';
 import { FusionSDK, NetworkEnum, PrivateKeyProviderConnector } from '@1inch/fusion-sdk';
 import { TonAdapter } from './adapters/TonAdapter';
 import { EvmAdapter } from './adapters/EvmAdapter';
@@ -56,6 +56,7 @@ export class TonResolver {
             this.evmAdapter = new EvmAdapter({
                 rpcUrl: this.config.evm.rpcUrl,
                 privateKey: this.config.evm.privateKey,
+                mnemonic: this.config.evm.mnemonic,
                 chainId: this.config.evm.chainId,
                 escrowFactoryAddress: this.config.evm.escrowFactory
             });
@@ -70,10 +71,22 @@ export class TonResolver {
                 extend: () => { }
             };
 
-            const evmConnector = new PrivateKeyProviderConnector(
-                this.config.evm.privateKey,
-                web3LikeProvider
-            );
+            // Create connector based on available credentials
+            let evmConnector;
+            if (this.config.evm.mnemonic) {
+                const hdWallet = HDNodeWallet.fromPhrase(this.config.evm.mnemonic);
+                evmConnector = new PrivateKeyProviderConnector(
+                    hdWallet.privateKey,
+                    web3LikeProvider
+                );
+            } else if (this.config.evm.privateKey) {
+                evmConnector = new PrivateKeyProviderConnector(
+                    this.config.evm.privateKey,
+                    web3LikeProvider
+                );
+            } else {
+                throw new Error('Either EVM mnemonic or private key must be provided');
+            }
 
             this.fusionSDK = new FusionSDK({
                 url: this.config.fusion.apiUrl,

@@ -17,7 +17,8 @@ export function loadConfig(): ResolverConfig {
         },
         evm: {
             rpcUrl: process.env.EVM_RPC_URL || 'https://eth-sepolia.g.alchemy.com/v2/demo',
-            privateKey: process.env.EVM_PRIVATE_KEY || '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef',
+            privateKey: process.env.EVM_PRIVATE_KEY || '',
+            mnemonic: process.env.EVM_MNEMONIC || '',
             chainId: parseInt(process.env.EVM_CHAIN_ID || '11155111'),
             escrowFactory: process.env.EVM_ESCROW_FACTORY || '0x1234567890123456789012345678901234567890'
         },

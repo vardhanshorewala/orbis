@@ -16,7 +16,6 @@ import { EvmAdapter } from '../adapters/EvmAdapter';
 
 /**
  * End-to-end demonstration of TON <-> EVM cross-chain swap
- * Adapted from the moleswap example to use our components
  */
 
 // Helper to create a demo order
@@ -71,6 +70,7 @@ async function main() {
         const evmAdapter = new EvmAdapter({
             rpcUrl: config.evm.rpcUrl,
             privateKey: config.evm.privateKey,
+            mnemonic: config.evm.mnemonic,
             chainId: config.evm.chainId,
             escrowFactoryAddress: config.evm.escrowFactory
         });

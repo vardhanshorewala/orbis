@@ -57,7 +57,10 @@ TON_MNEMONIC="your twelve word mnemonic phrase"
 
 # EVM Configuration
 EVM_RPC_URL=https://eth-sepolia.g.alchemy.com/v2/your_key
-EVM_PRIVATE_KEY=0xyour_private_key
+# Option 1: Using mnemonic (recommended)
+EVM_MNEMONIC="your twelve word mnemonic phrase"
+# Option 2: Using private key
+# EVM_PRIVATE_KEY=0xyour_private_key
 EVM_CHAIN_ID=11155111
 EVM_ESCROW_FACTORY=0x_deployed_factory_address
 

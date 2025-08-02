@@ -13,6 +13,7 @@ export interface ResolverConfig {
     evm: {
         rpcUrl: string;
         privateKey: string;
+        mnemonic?: string;
         chainId: number;
         escrowFactory: string;
     };

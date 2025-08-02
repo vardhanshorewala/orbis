@@ -72,6 +72,7 @@ async function executeEvmToTonSwap() {
     const evmAdapter = new EvmAdapter({
         rpcUrl: config.evm.rpcUrl,
         privateKey: config.evm.privateKey,
+        mnemonic: config.evm.mnemonic,
         chainId: config.evm.chainId,
         escrowFactoryAddress: config.evm.escrowFactory
     });
@@ -167,6 +168,7 @@ async function executeTonToEvmSwap() {
     const evmAdapter = new EvmAdapter({
         rpcUrl: config.evm.rpcUrl,
         privateKey: config.evm.privateKey,
+        mnemonic: config.evm.mnemonic,
         chainId: config.evm.chainId,
         escrowFactoryAddress: config.evm.escrowFactory
     });
