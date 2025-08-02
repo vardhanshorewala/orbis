@@ -7,6 +7,7 @@ import inquirer from 'inquirer';
 import { TonRelayer } from './relayer';
 import { config, validateConfig } from './config';
 import { Logger } from './utils';
+import { OrderStatus } from './types';
 
 const program = new Command();
 
@@ -53,7 +54,8 @@ program
             });
 
         } catch (error) {
-            console.error(chalk.red('❌ Failed to start relayer:'), error.message);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(chalk.red('❌ Failed to start relayer:'), errorMessage);
             process.exit(1);
         }
     });
@@ -87,7 +89,8 @@ program
             console.log(`Uptime: ${status.stats.uptime}`);
 
         } catch (error) {
-            console.error(chalk.red('❌ Failed to get status:'), error.message);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(chalk.red('❌ Failed to get status:'), errorMessage);
             process.exit(1);
         }
     });
@@ -108,7 +111,8 @@ program
             });
 
         } catch (error) {
-            console.error(chalk.red('❌ Failed to start monitoring:'), error.message);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(chalk.red('❌ Failed to start monitoring:'), errorMessage);
             process.exit(1);
         }
     });
@@ -151,7 +155,8 @@ program
             console.log(`Transaction: ${deployment.txHash}`);
 
         } catch (error) {
-            console.error(chalk.red('❌ Deployment failed:'), error.message);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(chalk.red('❌ Deployment failed:'), errorMessage);
             process.exit(1);
         }
     });
@@ -190,7 +195,8 @@ program
             }
 
         } catch (error) {
-            console.error(chalk.red('❌ Configuration error:'), error.message);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(chalk.red('❌ Configuration error:'), errorMessage);
             process.exit(1);
         }
     });
@@ -217,7 +223,7 @@ program
 
                 orders.forEach(order => {
                     const statusColor = order.status === 'completed' ? chalk.green :
-                        order.status === 'failed' ? chalk.red : chalk.yellow;
+                        order.status === OrderStatus.FAILED ? chalk.red : chalk.yellow;
                     console.log(`${statusColor(order.orderId)} - ${order.sourceChain} → ${order.destinationChain} - ${statusColor(order.status)}`);
                 });
             }
@@ -235,7 +241,8 @@ program
             }
 
         } catch (error) {
-            console.error(chalk.red('❌ Orders command failed:'), error.message);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(chalk.red('❌ Orders command failed:'), errorMessage);
             process.exit(1);
         }
     });
@@ -264,7 +271,8 @@ program
             });
 
         } catch (error) {
-            console.error(chalk.red('❌ Tests failed:'), error.message);
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(chalk.red('❌ Tests failed:'), errorMessage);
             process.exit(1);
         }
     });

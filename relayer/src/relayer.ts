@@ -8,9 +8,27 @@ import {
     CrossChainOrder,
     OrderStatus,
     EscrowDetails,
-    RelayerError
+    RelayerError,
+    RelayerEvent
 } from './types';
 import { SecretManager, TimelockManager, Logger, sleep } from './utils';
+
+// Import CrossChainSwapOrder type from resolver
+interface CrossChainSwapOrder {
+    orderId: string;
+    maker: string;
+    sourceChain: 'ton' | 'evm';
+    destinationChain: 'ton' | 'evm';
+    fromToken: string;
+    toToken: string;
+    amount: string;
+    minReceiveAmount: string;
+    secretHash: string;
+    timelock: number;
+    makerAddress: string;
+    resolverFee: string;
+    deadline: number;
+}
 
 /**
  * TON Fusion+ Relayer - Monitors events and notifies resolvers
@@ -23,11 +41,11 @@ import { SecretManager, TimelockManager, Logger, sleep } from './utils';
  */
 export class TonRelayer {
     private config: RelayerConfig;
-    private tonClient: TonClient;
-    private tonWallet: WalletContractV4;
-    private evmProvider: JsonRpcProvider;
-    private evmWallet: Wallet;
-    private fusionSDK: FusionSDK;
+    private tonClient!: TonClient;
+    private tonWallet!: WalletContractV4;
+    private evmProvider!: JsonRpcProvider;
+    private evmWallet!: Wallet;
+    private fusionSDK!: FusionSDK;
 
     private orders: Map<string, CrossChainOrder> = new Map();
     private escrows: Map<string, EscrowDetails> = new Map();
@@ -80,7 +98,8 @@ export class TonRelayer {
 
             Logger.info('Relayer clients initialized successfully');
         } catch (error) {
-            Logger.error('Failed to initialize clients', { error: error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            Logger.error('Failed to initialize clients', { error: errorMessage });
             throw error;
         }
     }
@@ -160,7 +179,8 @@ export class TonRelayer {
                 }
             };
         } catch (error) {
-            throw new RelayerError(`Failed to get status: ${error.message}`, {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            throw new RelayerError(`Failed to get status: ${errorMessage}`, {
                 code: 'STATUS_ERROR'
             });
         }
@@ -182,7 +202,8 @@ export class TonRelayer {
 
                 await sleep(this.config.relayer.pollInterval);
             } catch (error) {
-                Logger.error('Error in TON event monitoring', { error: error.message });
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                Logger.error('Error in TON event monitoring', { error: errorMessage });
                 await sleep(this.config.relayer.pollInterval * 2);
             }
         }
@@ -204,7 +225,8 @@ export class TonRelayer {
 
                 await sleep(this.config.relayer.pollInterval);
             } catch (error) {
-                Logger.error('Error in EVM event monitoring', { error: error.message });
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                Logger.error('Error in EVM event monitoring', { error: errorMessage });
                 await sleep(this.config.relayer.pollInterval * 2);
             }
         }
@@ -230,7 +252,8 @@ export class TonRelayer {
                 await this.processTonTransaction(tx, 'source');
             }
         } catch (error) {
-            Logger.debug('Error checking TON source escrow events', { error: error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            Logger.debug('Error checking TON source escrow events', { error: errorMessage });
         }
     }
 
@@ -249,7 +272,8 @@ export class TonRelayer {
                 await this.processTonTransaction(tx, 'destination');
             }
         } catch (error) {
-            Logger.debug('Error checking TON destination escrow events', { error: error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            Logger.debug('Error checking TON destination escrow events', { error: errorMessage });
         }
     }
 
@@ -277,7 +301,8 @@ export class TonRelayer {
                     Logger.debug('Unknown operation code', { op, escrowType });
             }
         } catch (error) {
-            Logger.debug('Error processing TON transaction', { error: error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            Logger.debug('Error processing TON transaction', { error: errorMessage });
         }
     }
 
@@ -365,7 +390,8 @@ export class TonRelayer {
             // 3. Notify resolvers about opportunities
 
         } catch (error) {
-            Logger.debug('Error checking Fusion orders', { error: error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            Logger.debug('Error checking Fusion orders', { error: errorMessage });
         }
     }
 
@@ -379,7 +405,8 @@ export class TonRelayer {
             Logger.debug('Checking EVM escrow events');
 
         } catch (error) {
-            Logger.debug('Error checking EVM escrow events', { error: error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            Logger.debug('Error checking EVM escrow events', { error: errorMessage });
         }
     }
 
@@ -395,7 +422,8 @@ export class TonRelayer {
 
                 await sleep(this.config.relayer.pollInterval * 2);
             } catch (error) {
-                Logger.error('Error monitoring escrow states', { error: error.message });
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                Logger.error('Error monitoring escrow states', { error: errorMessage });
                 await sleep(this.config.relayer.pollInterval * 4);
             }
         }
@@ -418,7 +446,8 @@ export class TonRelayer {
 
                 await sleep(this.config.relayer.pollInterval * 3);
             } catch (error) {
-                Logger.error('Error monitoring timeouts', { error: error.message });
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                Logger.error('Error monitoring timeouts', { error: errorMessage });
                 await sleep(this.config.relayer.pollInterval * 6);
             }
         }
@@ -446,7 +475,8 @@ export class TonRelayer {
                 Logger.debug('Checking EVM escrow status', { escrowId });
             }
         } catch (error) {
-            Logger.debug('Error checking escrow status', { escrowId, error: error.message });
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            Logger.debug('Error checking escrow status', { escrowId, error: errorMessage });
         }
     }
 
@@ -485,11 +515,72 @@ export class TonRelayer {
 
         for (const resolver of this.resolvers) {
             try {
-                // await this.sendNotification(resolver, event);
+                // TODO: Implement actual resolver notification
+                // This should call the resolver's API or trigger resolver CLI
+                await this.triggerResolver(event);
                 Logger.debug('Notification sent', { resolver, eventType: event.type });
             } catch (error) {
-                Logger.error('Failed to notify resolver', { resolver, error: error.message });
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                Logger.error('Failed to notify resolver', { resolver, error: errorMessage });
             }
+        }
+    }
+
+    /**
+     * Trigger resolver to process an order
+     */
+    private async triggerResolver(event: RelayerEvent): Promise<void> {
+        Logger.info('🎯 Triggering resolver', {
+            eventType: event.type,
+            orderId: event.orderId
+        });
+
+        // For demo purposes, create a simple order structure
+        if (event.type === 'escrow_created' && event.orderId) {
+            const order: CrossChainSwapOrder = {
+                orderId: event.orderId,
+                maker: event.data?.maker || 'EQD0vdSA_NedR9uvbgN9EikRX-suesDxGeFg69XQMavfLqxa',
+                sourceChain: event.data?.sourceChain || 'ton',
+                destinationChain: event.data?.destinationChain || 'evm',
+                fromToken: event.data?.fromToken || 'TON',
+                toToken: event.data?.toToken || 'USDC',
+                amount: event.data?.amount || '1000000000',
+                minReceiveAmount: event.data?.minReceiveAmount || '950000000',
+                secretHash: event.data?.secretHash || '',
+                timelock: event.data?.timelock || Math.floor(Date.now() / 1000) + 3600,
+                makerAddress: event.data?.makerAddress || 'EQD0vdSA_NedR9uvbgN9EikRX-suesDxGeFg69XQMavfLqxa',
+                resolverFee: event.data?.resolverFee || '10000',
+                deadline: event.data?.deadline || Math.floor(Date.now() / 1000) + 7200
+            };
+
+            Logger.info('📦 Created order for resolver', { order });
+
+            // Option 1: CLI execution (simple for demo)
+            try {
+                const { exec } = require('child_process');
+                const orderJson = JSON.stringify(order);
+                const command = `cd ../resolver && npm run dev -- handle-order '${orderJson}'`;
+
+                exec(command, (error: any, stdout: string, stderr: string) => {
+                    if (error) {
+                        Logger.error('Failed to trigger resolver', { error: error.message });
+                        return;
+                    }
+                    if (stderr) {
+                        Logger.warn('Resolver stderr', { stderr });
+                    }
+                    Logger.info('Resolver response', { stdout });
+                });
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+                Logger.error('Failed to execute resolver', { error: errorMessage });
+            }
+
+            // Option 2: HTTP API call (TODO: implement when resolver has API server)
+            // await this.sendOrderToResolverAPI(order);
+
+            // Option 3: Message queue (TODO: implement for production)
+            // await this.publishToQueue(order);
         }
     }
 

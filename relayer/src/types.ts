@@ -48,7 +48,8 @@ export enum OrderStatus {
     PARTIALLY_FILLED = 'partially_filled',
     COMPLETED = 'completed',
     EXPIRED = 'expired',
-    CANCELLED = 'cancelled'
+    CANCELLED = 'cancelled',
+    FAILED = 'failed'
 }
 
 export interface EscrowDetails {
@@ -76,10 +77,18 @@ export interface SecretData {
     merkleProof?: string[];
 }
 
-export interface RelayerError extends Error {
+export class RelayerError extends Error {
     code: string;
     chain?: string;
     orderId?: string;
+
+    constructor(message: string, options: { code?: string; chain?: string; orderId?: string } = {}) {
+        super(message);
+        this.name = 'RelayerError';
+        this.code = options.code || 'UNKNOWN_ERROR';
+        this.chain = options.chain;
+        this.orderId = options.orderId;
+    }
 }
 
 export interface RelayerEvent {
