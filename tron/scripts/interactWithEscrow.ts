@@ -112,8 +112,7 @@ async function interactWithDestinationEscrow(provider: NetworkProvider, contract
         'Check In Exclusive Period',
         'Send Lock',
         'Send Withdraw',
-        'Send Refund',
-        'Send Cancel'
+        'Send Refund'
     ], (a) => a);
 
     try {
@@ -122,7 +121,6 @@ async function interactWithDestinationEscrow(provider: NetworkProvider, contract
                 const details = await destinationEscrow.getEscrowDetails();
                 ui.write('📊 Escrow Details:');
                 ui.write(`   Status: ${details.status}`);
-                ui.write(`   Escrow ID: ${details.escrowId.toString()}`);
                 ui.write(`   Amount: ${details.amount.toString()} nanotons`);
                 ui.write(`   Resolver: ${details.resolverAddress.toString()}`);
                 ui.write(`   Maker: ${details.makerAddress.toString()}`);
@@ -136,8 +134,15 @@ async function interactWithDestinationEscrow(provider: NetworkProvider, contract
                 break;
 
             case 'Check Can Withdraw':
-                const secret = await ui.input('Enter secret (hex):');
-                const canWithdraw = await destinationEscrow.canWithdraw(provider.provider(contractAddress), secret);
+                const checkSecretText = await ui.input('Enter secret:');
+                
+                // Convert text secret to hex string representing first 4 bytes
+                const checkSecretBuffer = Buffer.from(checkSecretText);
+                const checkSecretHex = checkSecretBuffer.slice(0, 4).toString('hex').padEnd(8, '0');
+                
+                ui.write(`🔐 Checking with secret: "${checkSecretText}" (hex: 0x${checkSecretHex})`);
+                
+                const canWithdraw = await destinationEscrow.canWithdraw(provider.provider(contractAddress), checkSecretHex);
                 ui.write(`🔍 Can Withdraw: ${canWithdraw}`);
                 break;
 
@@ -157,23 +162,24 @@ async function interactWithDestinationEscrow(provider: NetworkProvider, contract
                 break;
 
             case 'Send Withdraw':
-                const withdrawSecret = await ui.input('Enter secret (hex):');
+                const withdrawSecretText = await ui.input('Enter secret:');
+                
+                // Convert text secret to hex string representing first 4 bytes
+                const secretBuffer = Buffer.from(withdrawSecretText);
+                const secretHex = secretBuffer.slice(0, 4).toString('hex').padEnd(8, '0');
+                
+                ui.write(`🔐 Using secret: "${withdrawSecretText}" (hex: 0x${secretHex})`);
                 
                 await destinationEscrow.sendWithdraw(provider.sender(), {
                     value: toNano('0.05'),
-                    secret: withdrawSecret,
+                    secret: secretHex,
                 });
-                ui.write('✅ Withdraw message sent! (Full amount will be withdrawn)');
+                ui.write('✅ Withdraw message sent! (Full amount will be sent to maker)');
                 break;
 
             case 'Send Refund':
                 await destinationEscrow.sendRefund(provider.sender(), toNano('0.05'));
                 ui.write('✅ Refund message sent!');
-                break;
-
-            case 'Send Cancel':
-                await destinationEscrow.sendCancel(provider.sender(), toNano('0.05'));
-                ui.write('✅ Cancel message sent!');
                 break;
         }
     } catch (error) {
