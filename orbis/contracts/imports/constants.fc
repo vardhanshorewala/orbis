@@ -1,0 +1,39 @@
+;; Constants for TON Fusion+ Escrow Contracts
+
+;; Error codes  
+const int ERROR_INVALID_SIGNATURE = 100;
+const int ERROR_INSUFFICIENT_VALUE = 101;
+const int ERROR_TIMELOCK_NOT_EXPIRED = 102;
+const int ERROR_ALREADY_WITHDRAWN = 103;
+const int ERROR_INVALID_SECRET = 104;
+const int ERROR_ESCROW_EXPIRED = 105;
+const int ERROR_INVALID_RESOLVER = 106;
+const int ERROR_INVALID_MAKER = 107;
+const int ERROR_INSUFFICIENT_SAFETY_DEPOSIT = 108;
+const int ERROR_INVALID_MERKLE_PROOF = 109;
+const int ERROR_INVALID_PARTIAL_FILL = 110;
+const int ERROR_ESCROW_NOT_LOCKED = 111;
+const int ERROR_EXCLUSIVE_PERIOD_ACTIVE = 112;
+const int ERROR_INVALID_ASSET_TYPE = 113;
+const int ERROR_JETTON_TRANSFER_FAILED = 114;
+const int ERROR_ESCROW_NOT_FOUND = 115;
+const int ERROR_INSUFFICIENT_BALANCE = 116;
+const int ERROR_TIMEOUT_NOT_REACHED = 117;
+
+;; Gas constants
+const int MIN_TON_FOR_STORAGE = 10000000; ;; 0.01 TON
+const int GAS_CONSUMPTION = 10000000; ;; 0.01 TON
+
+;; Time constants  
+const int HOUR_IN_SECONDS = 3600;
+const int DAY_IN_SECONDS = 86400;
+const int WEEK_IN_SECONDS = 604800;
+
+;; Other constants
+const int WORKCHAIN = 0;
+const int MAX_MERKLE_PROOF_DEPTH = 256;
+
+;; Helper functions
+int equal_slices(slice a, slice b) inline {
+    return equal_slice_bits(a, b);
+} 

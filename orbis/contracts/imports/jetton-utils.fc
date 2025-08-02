@@ -1,0 +1,81 @@
+;; Jetton Utility Functions for TON Fusion+ Escrow Contracts
+
+;; Jetton operation codes
+const int JETTON_TRANSFER = 0xf8a7ea5;
+const int JETTON_TRANSFER_NOTIFICATION = 0x7362d09c;
+const int JETTON_INTERNAL_TRANSFER = 0x178d4519;
+const int JETTON_EXCESSES = 0xd53276db;
+
+;; Build jetton transfer message
+cell build_jetton_transfer_msg(int query_id, int amount, slice destination, slice response_destination, cell custom_payload, int ton_amount, slice forward_payload) inline {
+    return begin_cell()
+        .store_uint(JETTON_TRANSFER, 32)
+        .store_uint(query_id, 64)
+        .store_coins(amount)
+        .store_slice(destination)
+        .store_slice(response_destination)
+        .store_maybe_ref(custom_payload)
+        .store_coins(ton_amount)
+        .store_slice(forward_payload)
+        .end_cell();
+}
+
+;; Build jetton notification message  
+cell build_jetton_notification_msg(int query_id, int amount, slice from_address, slice forward_payload) inline {
+    return begin_cell()
+        .store_uint(JETTON_TRANSFER_NOTIFICATION, 32)
+        .store_uint(query_id, 64)
+        .store_coins(amount)
+        .store_slice(from_address)
+        .store_slice(forward_payload)
+        .end_cell();
+}
+
+;; Calculate jetton wallet state init
+cell calculate_jetton_wallet_state_init(slice owner_address, slice jetton_master_address, cell jetton_wallet_code) inline {
+    return begin_cell()
+        .store_uint(0, 2)
+        .store_dict(jetton_wallet_code)
+        .store_dict(
+            begin_cell()
+                .store_coins(0)
+                .store_slice(owner_address)
+                .store_slice(jetton_master_address)
+                .store_ref(jetton_wallet_code)
+                .end_cell()
+        )
+        .store_uint(0, 1)
+        .end_cell();
+}
+
+;; Calculate address from state init
+slice calculate_jetton_wallet_address_by_state_init(cell state_init) inline {
+    return begin_cell()
+        .store_uint(4, 3)
+        .store_int(WORKCHAIN, 8)
+        .store_uint(cell_hash(state_init), 256)
+        .end_cell()
+        .begin_parse();
+}
+
+;; Calculate jetton wallet address from owner and jetton master
+slice calculate_jetton_wallet_address(slice owner_address, slice jetton_master_address, cell jetton_wallet_code) inline {
+    return calculate_jetton_wallet_address_by_state_init(
+        calculate_jetton_wallet_state_init(owner_address, jetton_master_address, jetton_wallet_code)
+    );
+}
+
+;; Send jetton transfer
+() send_jetton_transfer(slice jetton_wallet_address, int query_id, int jetton_amount, slice destination, slice response_destination, int ton_amount, int send_mode) impure inline {
+    var msg = build_jetton_transfer_msg(query_id, jetton_amount, destination, response_destination, null(), ton_amount, begin_cell().end_cell().begin_parse());
+    
+    var msg_cell = begin_cell()
+        .store_uint(0x18, 6)
+        .store_slice(jetton_wallet_address)
+        .store_coins(ton_amount)
+        .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+        .store_ref(msg)
+        .end_cell();
+    
+    send_raw_message(msg_cell, send_mode);
+} 

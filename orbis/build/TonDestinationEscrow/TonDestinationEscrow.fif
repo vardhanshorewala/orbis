@@ -1,0 +1,935 @@
+"Asm.fif" include
+// automatically generated from `contracts/ton_destination_escrow.fc` incl:`contracts/imports/stdlib.fc` incl:`contracts/imports/constants.fc` incl:`contracts/imports/jetton-utils.fc` 
+PROGRAM{
+  DECLPROC ~load_bool
+  DECLPROC store_bool
+  DECLPROC store_address_none
+  DECLPROC is_address_none
+  DECLPROC store_msg_flags_and_address_none
+  DECLPROC ~load_msg_flags
+  DECLPROC is_bounced
+  DECLPROC ~skip_bounced_prefix
+  DECLPROC store_statinit_ref_and_body_ref
+  DECLPROC store_only_body_ref
+  DECLPROC store_prefix_only_body
+  DECLPROC ~retrieve_fwd_fee
+  DECLPROC ~load_op
+  DECLPROC ~skip_op
+  DECLPROC store_op
+  DECLPROC ~load_query_id
+  DECLPROC ~skip_query_id
+  DECLPROC store_query_id
+  DECLPROC ~load_op_and_query_id
+  DECLPROC ~set_token_snake_metadata_entry
+  DECLPROC create_token_onchain_metadata
+  DECLPROC equal_slices
+  DECLPROC build_jetton_transfer_msg
+  DECLPROC build_jetton_notification_msg
+  DECLPROC calculate_jetton_wallet_state_init
+  DECLPROC calculate_jetton_wallet_address_by_state_init
+  DECLPROC calculate_jetton_wallet_address
+  DECLPROC send_jetton_transfer
+  DECLPROC load_data
+  DECLPROC save_data
+  DECLPROC verify_secret
+  DECLPROC create_escrow
+  DECLPROC lock_escrow
+  DECLPROC withdraw_with_secret
+  DECLPROC refund_escrow
+  DECLPROC cancel_escrow
+  85269 DECLMETHOD get_escrow_details
+  115239 DECLMETHOD can_withdraw
+  75754 DECLMETHOD can_refund
+  93334 DECLMETHOD in_exclusive_period
+  DECLPROC recv_internal
+  ~load_bool PROCINLINE:<{
+    1 LDI
+    SWAP
+  }>
+  store_bool PROCINLINE:<{
+    SWAP
+    1 STI
+  }>
+  store_address_none PROCINLINE:<{
+    0 PUSHINT
+    SWAP
+    2 STU
+  }>
+  is_address_none PROCINLINE:<{
+    2 PLDU
+    0 EQINT
+  }>
+  store_msg_flags_and_address_none PROCINLINE:<{
+    SWAP
+    6 STU
+  }>
+  ~load_msg_flags PROCINLINE:<{
+    4 LDU
+    SWAP
+  }>
+  is_bounced PROCINLINE:<{
+    1 PUSHINT
+    AND
+    1 EQINT
+  }>
+  ~skip_bounced_prefix PROCINLINE:<{
+    32 PUSHINT
+    SDSKIPFIRST
+  }>
+  store_statinit_ref_and_body_ref PROCINLINE:<{
+    7 PUSHINT
+    s0 s3 XCHG2
+    108 STU
+    STREF
+    STREF
+  }>
+  store_only_body_ref PROCINLINE:<{
+    1 PUSHINT
+    ROT
+    107 STU
+    STREF
+  }>
+  store_prefix_only_body PROCINLINE:<{
+    0 PUSHINT
+    SWAP
+    107 STU
+  }>
+  ~retrieve_fwd_fee PROCINLINE:<{
+    LDMSGADDR
+    NIP
+    LDVARUINT16
+    NIP
+    SKIPDICT
+    LDVARUINT16
+    NIP
+    LDVARUINT16
+    SWAP
+  }>
+  ~load_op PROCINLINE:<{
+    32 LDU
+    SWAP
+  }>
+  ~skip_op PROCINLINE:<{
+    32 PUSHINT
+    SDSKIPFIRST
+  }>
+  store_op PROCINLINE:<{
+    SWAP
+    32 STU
+  }>
+  ~load_query_id PROCINLINE:<{
+    64 LDU
+    SWAP
+  }>
+  ~skip_query_id PROCINLINE:<{
+    64 PUSHINT
+    SDSKIPFIRST
+  }>
+  store_query_id PROCINLINE:<{
+    SWAP
+    64 STU
+  }>
+  ~load_op_and_query_id PROCINLINE:<{
+    ~load_op INLINECALLDICT
+    SWAP
+    ~load_query_id INLINECALLDICT
+    s1 s2 XCHG
+  }>
+  ~set_token_snake_metadata_entry PROC:<{
+    0 PUSHINT
+    NEWC
+    8 STU
+    SWAP
+    STSLICER
+    ENDC
+    s0 s2 XCHG
+    8 PUSHPOW2
+    DICTUSETREF
+  }>
+  create_token_onchain_metadata PROCINLINE:<{
+    0 PUSHINT
+    NEWC
+    8 STU
+    STDICT
+    ENDC
+  }>
+  equal_slices PROCINLINE:<{
+    SDEQ
+  }>
+  build_jetton_transfer_msg PROCINLINE:<{
+    260734629 PUSHINT
+    NEWC
+    32 STU
+    s1 s7 XCHG
+    64 STU
+    s0 s5 XCHG2
+    STVARUINT16
+    s0 s3 XCHG2
+    STSLICER
+    SWAP
+    STSLICER
+    STOPTREF
+    SWAP
+    STVARUINT16
+    SWAP
+    STSLICER
+    ENDC
+  }>
+  build_jetton_notification_msg PROCINLINE:<{
+    1935855772 PUSHINT
+    NEWC
+    32 STU
+    s1 s4 XCHG
+    64 STU
+    ROT
+    STVARUINT16
+    SWAP
+    STSLICER
+    SWAP
+    STSLICER
+    ENDC
+  }>
+  calculate_jetton_wallet_state_init PROCINLINE:<{
+    0 PUSHINT
+    NEWC
+    OVER
+    STVARUINT16
+    s0 s4 XCHG2
+    STSLICER
+    ROT
+    STSLICER
+    s1 s(-1) PUXC
+    STREF
+    ENDC
+    s2 PUSH
+    NEWC
+    2 STU
+    s1 s2 XCHG
+    STDICT
+    STDICT
+    1 STU
+    ENDC
+  }>
+  calculate_jetton_wallet_address_by_state_init PROCINLINE:<{
+    HASHCU
+    0 PUSHINT
+    4 PUSHINT
+    NEWC
+    3 STU
+    8 STI
+    256 STU
+    ENDC
+    CTOS
+  }>
+  calculate_jetton_wallet_address PROCINLINE:<{
+    calculate_jetton_wallet_state_init INLINECALLDICT
+    calculate_jetton_wallet_address_by_state_init INLINECALLDICT
+  }>
+  send_jetton_transfer PROCINLINE:<{
+    PUSHNULL
+    NEWC
+    ENDC
+    CTOS
+    s5 s7 XCHG
+    5 3 REVERSE
+    s7 PUSH
+    s3 s7 XCHG
+    SWAP
+    build_jetton_transfer_msg INLINECALLDICT
+    1 PUSHINT
+    24 PUSHINT
+    NEWC
+    6 STU
+    s0 s5 XCHG2
+    STSLICER
+    s0 s3 XCHG2
+    STVARUINT16
+    s1 s3 XCHG
+    107 STU
+    STREF
+    ENDC
+    SWAP
+    SENDRAWMSG
+  }>
+  load_data PROCINLINE:<{
+    c4 PUSH
+    CTOS
+    LDMSGADDR
+    LDMSGADDR
+    LDMSGADDR
+    LDMSGADDR
+    8 LDU
+    LDMSGADDR
+    LDVARUINT16
+    LDVARUINT16
+    256 LDU
+    32 LDU
+    32 LDU
+    32 LDU
+    8 LDU
+    256 LDU
+    32 LDU
+    32 LDU
+    DROP
+  }>
+  save_data PROCINLINE:<{
+    NEWC
+    SWAP
+    s0 16 s() XCHG
+    STSLICER
+    s0 s14 XCHG2
+    STSLICER
+    s0 s12 XCHG2
+    STSLICER
+    s0 s10 XCHG2
+    STSLICER
+    s1 s8 XCHG
+    8 STU
+    s0 s6 XCHG2
+    STSLICER
+    s0 s4 XCHG2
+    STVARUINT16
+    ROT
+    STVARUINT16
+    256 STU
+    32 STU
+    32 STU
+    32 STU
+    8 STU
+    256 STU
+    32 STU
+    32 STU
+    ENDC
+    c4 POP
+  }>
+  verify_secret PROCINLINE:<{
+    DROP
+    DUP
+    SEMPTY
+    IF:<{
+      DROP
+      SHA256U
+      SWAP
+      EQUAL
+    }>ELSE<{
+      SWAP
+      SHA256U
+      WHILE:<{
+        OVER
+        SEMPTY
+        NOT
+      }>DO<{
+        SWAP
+        256 LDU
+        1 LDU
+        SWAP
+        IF:<{
+          SWAP
+          NEWC
+          256 STU
+          s1 s2 XCHG
+          256 STU
+          ENDC
+          CTOS
+          SHA256U
+        }>ELSE<{
+          s0 s2 XCHG
+          NEWC
+          256 STU
+          256 STU
+          ENDC
+          CTOS
+          SHA256U
+        }>
+      }>
+      NIP
+      SWAP
+      EQUAL
+    }>
+  }>
+  create_escrow PROC:<{
+    s12 POP
+    s5 s4 PUSH2
+    ADD
+    s1 s13 XCHG
+    GEQ
+    116 THROWIFNOT
+    NOW
+    DUP
+    NEWC
+    32 STU
+    s10 PUSH
+    STSLICER
+    s4 s(-1) PUXC
+    256 STU
+    ENDC
+    CTOS
+    s0 s13 XCHG
+    s11 s12 XCHG
+    s10 s11 XCHG
+    s9 s10 XCHG
+    s8 s9 XCHG
+    s7 s8 XCHG
+    s6 s7 XCHG
+    s5 s6 XCHG
+    s4 s5 XCHG
+    s3 s4 XCHG
+    s2 s3 XCHG
+    1 PUSHINT
+    s0 s1 s3 XCHG3
+    0 PUSHINT
+    SWAP
+    save_data INLINECALLDICT
+  }>
+  lock_escrow PROC:<{
+    load_data INLINECALLDICT
+    s0 16 s() XCHG
+    s14 PUSH
+    equal_slices INLINECALLDICT
+    106 THROWIFNOT
+    s0 s2 XCHG
+    1 EQINT
+    101 THROWIFNOT
+    NOW
+    s3 s4 PUSH2
+    ADD
+    GEQ
+    102 THROWIFNOT
+    s13 s14 XCHG
+    s12 s13 XCHG
+    s11 s12 XCHG
+    s10 s11 XCHG
+    s9 s10 XCHG
+    s8 s9 XCHG
+    s7 s8 XCHG
+    s6 s7 XCHG
+    s5 s6 XCHG
+    s4 s5 XCHG
+    s3 s4 XCHG
+    s2 s3 XCHG
+    2 PUSHINT
+    s2 s3 XCHG2
+    save_data INLINECALLDICT
+  }>
+  withdraw_with_secret PROC:<{
+    load_data INLINECALLDICT
+    s0 s3 XCHG
+    2 EQINT
+    103 THROWIFNOT
+    s6 PUSH
+    s0 s2 XCHG
+    s1 18 s() XCHG
+    s0 17 s() XCHG
+    16 s() PUSH
+    verify_secret INLINECALLDICT
+    104 THROWIFNOT
+    s15 s13 XCPU
+    ADD
+    s0 s6 PUSH2
+    LEQ
+    104 THROWIFNOT
+    NOW
+    s2 s3 PUSH2
+    ADD
+    17 s() PUSH
+    ADD
+    LESS
+    IF:<{
+      s0 16 s() XCHG
+      s11 PUSH
+      equal_slices INLINECALLDICT
+      106 THROWIFNOT
+      s7 PUSH
+      0 EQINT
+      IF:<{
+        0 PUSHINT
+        16 PUSHINT
+        NEWC
+        6 STU
+        s11 PUSH
+        STSLICER
+        s0 s14 XCHG2
+        STVARUINT16
+        s1 s13 XCHG
+        107 STU
+        ENDC
+        1 PUSHINT
+        SENDRAWMSG
+      }>ELSE<{
+        0 PUSHINT
+        s0 s0 PUSH2
+        395134233 PUSHINT
+        24 PUSHINT
+        NEWC
+        6 STU
+        s11 PUSH
+        STSLICER
+        100000000 PUSHINT
+        STVARUINT16
+        32 STU
+        64 STU
+        s0 s15 XCHG2
+        STVARUINT16
+        s11 PUSH
+        STSLICER
+        s11 PUSH
+        STSLICER
+        s1 s14 XCHG
+        1 STU
+        50000000 PUSHINT
+        STVARUINT16
+        s1 s13 XCHG
+        1 STU
+        ENDC
+        1 PUSHINT
+        SENDRAWMSG
+      }>
+      0 PUSHINT
+      16 PUSHINT
+      NEWC
+      6 STU
+      s11 PUSH
+      STSLICER
+      s5 PUSH
+      STVARUINT16
+      107 STU
+      ENDC
+      1 PUSHINT
+      SENDRAWMSG
+    }>ELSE<{
+      16 s() PUSH
+      s11 PUSH
+      equal_slices INLINECALLDICT
+      17 s() PUSH
+      s13 PUSH
+      equal_slices INLINECALLDICT
+      OR
+      107 THROWIFNOT
+      s8 PUSH
+      0 EQINT
+      IF:<{
+        0 PUSHINT
+        16 PUSHINT
+        NEWC
+        6 STU
+        s12 PUSH
+        STSLICER
+        s0 s15 XCHG2
+        STVARUINT16
+        s1 s14 XCHG
+        107 STU
+        ENDC
+        1 PUSHINT
+        SENDRAWMSG
+      }>ELSE<{
+        0 PUSHINT
+        s0 s0 PUSH2
+        395134233 PUSHINT
+        24 PUSHINT
+        NEWC
+        6 STU
+        s12 PUSH
+        STSLICER
+        100000000 PUSHINT
+        STVARUINT16
+        32 STU
+        64 STU
+        SWAP
+        s0 16 s() XCHG
+        STVARUINT16
+        s12 PUSH
+        STSLICER
+        s12 PUSH
+        STSLICER
+        s1 s15 XCHG
+        1 STU
+        50000000 PUSHINT
+        STVARUINT16
+        s1 s14 XCHG
+        1 STU
+        ENDC
+        1 PUSHINT
+        SENDRAWMSG
+      }>
+      0 PUSHINT
+      16 PUSHINT
+      NEWC
+      6 STU
+      SWAP
+      s0 17 s() XCHG
+      STSLICER
+      s5 PUSH
+      STVARUINT16
+      s1 16 s() XCHG
+      107 STU
+      ENDC
+      1 PUSHINT
+      SENDRAWMSG
+      s11 s14 XCHG
+    }>
+    s14 s4 PUSH2
+    EQUAL
+    IF:<{
+      3 PUSHINT
+    }>ELSE<{
+      2 PUSHINT
+    }>
+    s11 s15 XCHG
+    s10 s14 XCHG
+    s9 s13 XCHG
+    s8 s12 XCHG
+    s7 s11 XCHG
+    s6 s10 XCHG
+    s5 s9 XCHG
+    s4 s8 XCHG
+    s3 s7 XCHG
+    s6 s3 s3 XCHG3
+    s5 s1 s5 XCHG3
+    save_data INLINECALLDICT
+  }>
+  refund_escrow PROC:<{
+    load_data INLINECALLDICT
+    s0 16 s() XCHG
+    s14 PUSH
+    equal_slices INLINECALLDICT
+    105 THROWIFNOT
+    s2 PUSH
+    2 EQINT
+    s0 s3 XCHG
+    1 EQINT
+    s1 s3 XCHG
+    OR
+    106 THROWIFNOT
+    NOW
+    s3 s5 PUSH2
+    ADD
+    GEQ
+    117 THROWIFNOT
+    s7 s1 PUSH2
+    SUB
+    DUP
+    0 GTINT
+    IF:<{
+      s10 PUSH
+      0 EQINT
+      IF:<{
+        0 PUSHINT
+        16 PUSHINT
+        NEWC
+        6 STU
+        s13 PUSH
+        STSLICER
+        ROT
+        STVARUINT16
+        107 STU
+        ENDC
+        1 PUSHINT
+        SENDRAWMSG
+      }>ELSE<{
+        0 PUSHINT
+        s0 s0 PUSH2
+        395134233 PUSHINT
+        24 PUSHINT
+        NEWC
+        6 STU
+        s14 PUSH
+        STSLICER
+        100000000 PUSHINT
+        STVARUINT16
+        32 STU
+        64 STU
+        s0 s3 XCHG2
+        STVARUINT16
+        s13 PUSH
+        STSLICER
+        s13 PUSH
+        STSLICER
+        s1 s2 XCHG
+        1 STU
+        50000000 PUSHINT
+        STVARUINT16
+        1 STU
+        ENDC
+        1 PUSHINT
+        SENDRAWMSG
+      }>
+    }>ELSE<{
+      DROP
+    }>
+    0 PUSHINT
+    16 PUSHINT
+    NEWC
+    6 STU
+    s14 PUSH
+    STSLICER
+    s8 PUSH
+    STVARUINT16
+    107 STU
+    ENDC
+    1 PUSHINT
+    SENDRAWMSG
+    s13 s14 XCHG
+    s12 s13 XCHG
+    s11 s12 XCHG
+    s10 s11 XCHG
+    s9 s10 XCHG
+    s8 s9 XCHG
+    s7 s8 XCHG
+    s6 s7 XCHG
+    s5 s6 XCHG
+    s4 s5 XCHG
+    s3 s4 XCHG
+    s2 s3 XCHG
+    4 PUSHINT
+    s2 s3 XCHG2
+    save_data INLINECALLDICT
+  }>
+  cancel_escrow PROC:<{
+    load_data INLINECALLDICT
+    s0 16 s() XCHG
+    s14 PUSH
+    equal_slices INLINECALLDICT
+    106 THROWIFNOT
+    s0 s2 XCHG
+    1 EQINT
+    107 THROWIFNOT
+    s9 PUSH
+    0 EQINT
+    IF:<{
+      0 PUSHINT
+      16 PUSHINT
+      NEWC
+      6 STU
+      s12 PUSH
+      STSLICER
+      s9 s8 PUSH2
+      ADD
+      STVARUINT16
+      107 STU
+      ENDC
+      1 PUSHINT
+      SENDRAWMSG
+    }>ELSE<{
+      0 PUSHINT
+      s0 s0 PUSH2
+      395134233 PUSHINT
+      24 PUSHINT
+      NEWC
+      6 STU
+      s13 PUSH
+      STSLICER
+      100000000 PUSHINT
+      STVARUINT16
+      32 STU
+      64 STU
+      s10 PUSH
+      STVARUINT16
+      s13 PUSH
+      STSLICER
+      s13 PUSH
+      STSLICER
+      1 STU
+      50000000 PUSHINT
+      STVARUINT16
+      1 STU
+      ENDC
+      1 PUSHINT
+      SENDRAWMSG
+      0 PUSHINT
+      16 PUSHINT
+      NEWC
+      6 STU
+      s12 PUSH
+      STSLICER
+      s8 PUSH
+      STVARUINT16
+      107 STU
+      ENDC
+      1 PUSHINT
+      SENDRAWMSG
+    }>
+    s13 s14 XCHG
+    s12 s13 XCHG
+    s11 s12 XCHG
+    s10 s11 XCHG
+    s9 s10 XCHG
+    s8 s9 XCHG
+    s7 s8 XCHG
+    s6 s7 XCHG
+    s5 s6 XCHG
+    s4 s5 XCHG
+    s3 s4 XCHG
+    s2 s3 XCHG
+    4 PUSHINT
+    s2 s3 XCHG2
+    save_data INLINECALLDICT
+  }>
+  get_escrow_details PROC:<{
+    load_data INLINECALLDICT
+    s2 POP
+    s4 POP
+    s5 POP
+    s7 POP
+    s11 POP
+    s4 s0 PUSH2
+    SUB
+    s6 s11 XCHG
+    s5 s6 XCHG
+    s4 s5 XCHG
+    s1 s0 s4 XCHG3
+    s0 s3 XCHG
+  }>
+  can_withdraw PROC:<{
+    load_data INLINECALLDICT
+    DROP
+    NIP
+    s6 s8 XCHG2
+    5 BLKDROP
+    4 4 BLKDROP2
+    s4 POP
+    2 NEQINT
+    IFJMP:<{
+      6 BLKDROP
+      0 PUSHINT
+    }>
+    s1 s3 XCPU
+    ADD
+    SWAP
+    GREATER
+    IFJMP:<{
+      4 BLKDROP
+      0 PUSHINT
+    }>
+    3 -ROLL
+    verify_secret INLINECALLDICT
+    NOT
+    IFJMP:<{
+      0 PUSHINT
+    }>
+    -1 PUSHINT
+  }>
+  can_refund PROC:<{
+    load_data INLINECALLDICT
+    3 BLKDROP
+    s2 POP
+    9 3 BLKDROP2
+    OVER
+    2 NEQINT
+    s0 s2 XCHG
+    1 NEQINT
+    s1 s2 XCHG
+    AND
+    IFJMP:<{
+      2DROP
+      0 PUSHINT
+    }>
+    NOW
+    s0 s2 XCHG
+    ADD
+    LESS
+    IFJMP:<{
+      0 PUSHINT
+    }>
+    -1 PUSHINT
+  }>
+  in_exclusive_period PROC:<{
+    load_data INLINECALLDICT
+    s6 POP
+    2DROP
+    8 4 BLKDROP2
+    s4 POP
+    s0 s3 XCHG
+    2 NEQINT
+    IFJMP:<{
+      3 BLKDROP
+      0 PUSHINT
+    }>
+    s0 s2 XCHG
+    NOW
+    s0 s3 XCHG
+    ADD
+    s0 s1 PUXC
+    ADD
+    s2 s1 PUXC
+    GEQ
+    -ROT
+    LESS
+    AND
+  }>
+  recv_internal PROC:<{
+    s2 POP
+    OVER
+    SEMPTY
+    IFJMP:<{
+      3 BLKDROP
+    }>
+    CTOS
+    4 LDU
+    NIP
+    LDMSGADDR
+    DROP
+    SWAP
+    32 LDU
+    64 LDU
+    NIP
+    OVER
+    1 EQINT
+    IFJMP:<{
+      NIP
+      LDMSGADDR
+      LDMSGADDR
+      LDMSGADDR
+      8 LDU
+      LDMSGADDR
+      LDVARUINT16
+      LDVARUINT16
+      256 LDU
+      32 LDU
+      32 LDU
+      256 LDU
+      32 LDU
+      DROP
+      create_escrow CALLDICT
+    }>
+    s3 POP
+    DUP
+    4 EQINT
+    IFJMP:<{
+      DROP
+      NIP
+      lock_escrow CALLDICT
+    }>
+    DUP
+    2 EQINT
+    IFJMP:<{
+      DROP
+      SWAP
+      LDREF
+      SWAP
+      CTOS
+      SWAP
+      LDREF
+      SWAP
+      CTOS
+      SWAP
+      LDVARUINT16
+      DROP
+      withdraw_with_secret CALLDICT
+    }>
+    s2 POP
+    OVER
+    3 EQINT
+    IFJMP:<{
+      NIP
+      refund_escrow CALLDICT
+    }>
+    SWAP
+    5 EQINT
+    IFJMP:<{
+      cancel_escrow CALLDICT
+    }>
+    DROP
+    16 PUSHPOW2DEC
+    THROWANY
+  }>
+}END>c
