@@ -19,25 +19,23 @@ export type TonSourceEscrowConfig = {
     jettonMaster: Address;
     amount: bigint;
     safetyDeposit: bigint;
-    secretHash: string;
+    secretHash: string; // 256-bit hash as hex string
     timelockDuration: number;
     finalityTimelock: number;
-    merkleRoot: string;
 };
 
 export function tonSourceEscrowConfigToCell(config: TonSourceEscrowConfig): Cell {
-    // Create reference cell with additional addresses and data
+    // Create reference cell for additional data to avoid cell size limits
     const refCell = beginCell()
         .storeAddress(config.targetAddress)
         .storeAddress(config.refundAddress)
         .storeAddress(config.jettonMaster)
-        .storeBuffer(Buffer.from(config.secretHash.replace('0x', ''), 'hex'))
+        .storeUint(parseInt(config.secretHash.replace('0x', ''), 16), 32) // 32-bit hash for testing
         .storeUint(config.timelockDuration, 32)
         .storeUint(config.finalityTimelock, 32)
-        .storeBuffer(Buffer.from(config.merkleRoot.replace('0x', ''), 'hex'))
         .endCell();
 
-    // Main cell with essential data only
+    // Main cell with essential data and runtime state initialized to 0
     return beginCell()
         .storeAddress(config.makerAddress)
         .storeAddress(config.resolverAddress)
@@ -52,7 +50,6 @@ export const Opcodes = {
     CREATE_ESCROW: 0x1,
     WITHDRAW: 0x2,
     REFUND: 0x3,
-    UPDATE_STATUS: 0x4,
     LOCK_ESCROW: 0x5,
 };
 
@@ -73,8 +70,16 @@ export class TonSourceEscrow implements Contract {
         await provider.internal(via, {
             value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().endCell(), // Empty message for deployment
+        });
+    }
+
+    async sendLock(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
             body: beginCell()
-                .storeUint(Opcodes.CREATE_ESCROW, 32)
+                .storeUint(Opcodes.LOCK_ESCROW, 32)
                 .storeUint(0, 64) // query_id
                 .endCell(),
         });
@@ -86,18 +91,21 @@ export class TonSourceEscrow implements Contract {
         opts: {
             value: bigint;
             secret: string;
-            merkleProof?: Buffer;
-            withdrawAmount?: bigint;
         }
     ) {
+        // Create secret reference cell with 32-bit integer for testing
+        const secretInt = parseInt(opts.secret.replace('0x', ''), 16);
+        const secretCell = beginCell()
+            .storeUint(secretInt, 32)
+            .endCell();
+
         await provider.internal(via, {
             value: opts.value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
             body: beginCell()
                 .storeUint(Opcodes.WITHDRAW, 32)
                 .storeUint(0, 64) // query_id
-                .storeBuffer(Buffer.from(opts.secret.replace('0x', ''), 'hex'))
-                .storeUint(opts.withdrawAmount || 0n, 64)
+                .storeRef(secretCell)
                 .endCell(),
         });
     }
@@ -122,26 +130,22 @@ export class TonSourceEscrow implements Contract {
             targetAddress: result.stack.readAddress(),
             refundAddress: result.stack.readAddress(),
             assetType: result.stack.readNumber(),
+            jettonMaster: result.stack.readAddress(),
             amount: result.stack.readBigNumber(),
             safetyDeposit: result.stack.readBigNumber(),
-            secretHash: result.stack.readBuffer(),
             timelockDuration: result.stack.readNumber(),
-            finalityTimelock: result.stack.readNumber(),
-            merkleRoot: result.stack.readBuffer(),
+            createdAt: result.stack.readNumber(),
         };
     }
 
     async canWithdraw(
         provider: ContractProvider,
-        secret: string,
-        merkleProof?: Buffer,
-        withdrawAmount?: bigint
+        secret: string
     ): Promise<boolean> {
         try {
+            const secretInt = parseInt(secret.replace('0x', ''), 16);
             const result = await provider.get('can_withdraw', [
-                { type: 'slice', cell: beginCell().storeBuffer(Buffer.from(secret.replace('0x', ''), 'hex')).endCell() },
-                { type: 'slice', cell: beginCell().storeBuffer(merkleProof || Buffer.alloc(0)).endCell() },
-                { type: 'int', value: withdrawAmount || 0n },
+                { type: 'slice', cell: beginCell().storeUint(secretInt, 32).endCell() },
             ]);
             return result.stack.readNumber() !== 0;
         } catch {

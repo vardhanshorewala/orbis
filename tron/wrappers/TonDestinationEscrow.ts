@@ -17,34 +17,15 @@ export type TonDestinationEscrowConfig = {
     jettonMaster: Address;
     amount: bigint;
     safetyDeposit: bigint;
-    secretHash: string;
+    secretHash: string; // 256-bit hash as hex string
     timelockDuration: number;
     finalityTimelock: number;
-    merkleRoot: string;
     exclusivePeriod: number;
 };
 
 export function tonDestinationEscrowConfigToCell(config: TonDestinationEscrowConfig): Cell {
-    // Create reference cell with additional addresses and data
-    const refCell = beginCell()
-        .storeAddress(config.refundAddress)
-        .storeAddress(config.jettonMaster)
-        .storeBuffer(Buffer.from(config.secretHash.replace('0x', ''), 'hex'))
-        .storeUint(config.timelockDuration, 32)
-        .storeUint(config.finalityTimelock, 32)
-        .storeBuffer(Buffer.from(config.merkleRoot.replace('0x', ''), 'hex'))
-        .storeUint(config.exclusivePeriod, 32)
-        .endCell();
-
-    // Main cell with essential data only
-    return beginCell()
-        .storeAddress(config.resolverAddress)
-        .storeAddress(config.makerAddress)
-        .storeUint(config.assetType, 8)
-        .storeCoins(config.amount)
-        .storeCoins(config.safetyDeposit)
-        .storeRef(refCell)
-        .endCell();
+    // Empty cell for destination escrow - config is passed in CREATE_ESCROW message
+    return beginCell().endCell();
 }
 
 export const Opcodes = {
@@ -68,13 +49,24 @@ export class TonDestinationEscrow implements Contract {
         return new TonDestinationEscrow(contractAddress(workchain, init), init);
     }
 
-    async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {
+    async sendDeploy(provider: ContractProvider, via: Sender, value: bigint, config: TonDestinationEscrowConfig) {
         await provider.internal(via, {
             value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
             body: beginCell()
                 .storeUint(Opcodes.CREATE_ESCROW, 32)
                 .storeUint(0, 64) // query_id
+                .storeAddress(config.resolverAddress)
+                .storeAddress(config.makerAddress)
+                .storeAddress(config.refundAddress)
+                .storeUint(config.assetType, 8)
+                .storeAddress(config.jettonMaster)
+                .storeCoins(config.amount)
+                .storeCoins(config.safetyDeposit)
+                .storeUint(BigInt('0x' + config.secretHash.replace('0x', '')), 256)
+                .storeUint(config.timelockDuration, 32)
+                .storeUint(config.finalityTimelock, 32)
+                .storeUint(config.exclusivePeriod, 32)
                 .endCell(),
         });
     }
@@ -96,18 +88,20 @@ export class TonDestinationEscrow implements Contract {
         opts: {
             value: bigint;
             secret: string;
-            merkleProof?: Buffer;
-            withdrawAmount?: bigint;
         }
     ) {
+        // Create secret reference cell
+        const secretCell = beginCell()
+            .storeBuffer(Buffer.from(opts.secret.replace('0x', ''), 'hex'))
+            .endCell();
+
         await provider.internal(via, {
             value: opts.value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,
             body: beginCell()
                 .storeUint(Opcodes.WITHDRAW, 32)
                 .storeUint(0, 64) // query_id
-                .storeBuffer(Buffer.from(opts.secret.replace('0x', ''), 'hex'))
-                .storeUint(opts.withdrawAmount || 0n, 64)
+                .storeRef(secretCell)
                 .endCell(),
         });
     }
@@ -138,41 +132,49 @@ export class TonDestinationEscrow implements Contract {
         const result = await provider.get('get_escrow_details', []);
         return {
             status: result.stack.readNumber(),
+            escrowId: result.stack.readCell(),
             resolverAddress: result.stack.readAddress(),
             makerAddress: result.stack.readAddress(),
             refundAddress: result.stack.readAddress(),
             assetType: result.stack.readNumber(),
+            jettonMaster: result.stack.readAddress(),
             amount: result.stack.readBigNumber(),
             safetyDeposit: result.stack.readBigNumber(),
-            secretHash: result.stack.readBuffer(),
             timelockDuration: result.stack.readNumber(),
-            finalityTimelock: result.stack.readNumber(),
-            merkleRoot: result.stack.readBuffer(),
+            createdAt: result.stack.readNumber(),
             exclusivePeriod: result.stack.readNumber(),
         };
     }
 
     async canWithdraw(
         provider: ContractProvider,
-        secret: string,
-        merkleProof?: Buffer,
-        withdrawAmount?: bigint
+        secret: string
     ): Promise<boolean> {
-        const result = await provider.get('can_withdraw', [
-            { type: 'slice', cell: beginCell().storeBuffer(Buffer.from(secret.replace('0x', ''), 'hex')).endCell() },
-            { type: 'slice', cell: beginCell().storeBuffer(merkleProof || Buffer.alloc(0)).endCell() },
-            { type: 'int', value: withdrawAmount || 0n },
-        ]);
-        return result.stack.readNumber() !== 0;
+        try {
+            const result = await provider.get('can_withdraw', [
+                { type: 'slice', cell: beginCell().storeBuffer(Buffer.from(secret.replace('0x', ''), 'hex')).endCell() },
+            ]);
+            return result.stack.readNumber() !== 0;
+        } catch {
+            return false;
+        }
     }
 
     async canRefund(provider: ContractProvider): Promise<boolean> {
-        const result = await provider.get('can_refund', []);
-        return result.stack.readNumber() !== 0;
+        try {
+            const result = await provider.get('can_refund', []);
+            return result.stack.readNumber() !== 0;
+        } catch {
+            return false;
+        }
     }
 
     async inExclusivePeriod(provider: ContractProvider): Promise<boolean> {
-        const result = await provider.get('in_exclusive_period', []);
-        return result.stack.readNumber() !== 0;
+        try {
+            const result = await provider.get('in_exclusive_period', []);
+            return result.stack.readNumber() !== 0;
+        } catch {
+            return false;
+        }
     }
 } 
