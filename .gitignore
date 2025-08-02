@@ -164,3 +164,6 @@ addresses.json
 # package-lock.json
 # yarn.lock
 # pnpm-lock.yaml
+
+# Requirements document (internal use only)
+REQUIREMENTS.md
