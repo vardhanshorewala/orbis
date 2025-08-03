@@ -239,58 +239,91 @@ export class TonAdapter {
         }
     }
 
-    async sendToEscrow(escrowAddress: Address, opcode: number, body?: Cell, value: bigint = toNano('0.05')): Promise<void> {
+
+
+    async lockSourceEscrow(escrowAddress: Address): Promise<void> {
         if (!this.wallet) throw new Error('Wallet not initialized');
         
         try {
             const walletContract = this.client.open(this.wallet);
-            const messageBody = beginCell()
-                .storeUint(opcode, 32)
-                .storeUint(0, 64) // query_id
-                .endCell();
-
-            const finalBody = body 
-                ? beginCell()
-                    .storeUint(opcode, 32)
-                    .storeUint(0, 64)
-                    .storeRef(body)
-                    .endCell()
-                : messageBody;
-
             await walletContract.sendTransfer({
                 seqno: await walletContract.getSeqno(),
                 secretKey: this.keyPair.secretKey,
                 sendMode: SendMode.PAY_GAS_SEPARATELY,
                 messages: [internal({
                     to: escrowAddress,
-                    value: value,
-                    body: finalBody
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.LOCK_ESCROW, 32)
+                        .storeUint(0, 64) // query_id
+                        .endCell()
                 })]
             });
             
+            console.log(`Source escrow locked: ${escrowAddress.toString()}`);
         } catch (error) {
-            throw new ContractError(`Failed to send message to escrow: ${error}`);
+            throw new ContractError(`Failed to lock source escrow: ${error}`);
         }
     }
 
-    async lockSourceEscrow(escrowAddress: Address): Promise<void> {
-        await this.sendToEscrow(escrowAddress, Opcodes.LOCK_ESCROW);
-        console.log(`Source escrow locked: ${escrowAddress.toString()}`);
-    }
-
     async withdrawFromSourceEscrow(escrowAddress: Address, secret: string): Promise<void> {
-        const secretInt = parseInt(secret.replace('0x', ''), 16);
-        const secretCell = beginCell()
-            .storeUint(secretInt, 32)
-            .endCell();
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            // Create secret reference cell with 32-bit integer (like the wrapper does)
+            const secretInt = parseInt(secret.replace('0x', ''), 16);
+            const secretCell = beginCell()
+                .storeUint(secretInt, 32)
+                .endCell();
 
-        await this.sendToEscrow(escrowAddress, Opcodes.WITHDRAW, secretCell);
-        console.log(`Withdrew from source escrow: ${escrowAddress.toString()}`);
+            console.log(`🔍 Debug: Sending withdrawal with opcode ${Opcodes.WITHDRAW} (0x${Opcodes.WITHDRAW.toString(16)})`);
+            console.log(`🔍 Debug: Secret: 0x${secret}`);
+            
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.WITHDRAW, 32)
+                        .storeUint(0, 64) // query_id
+                        .storeRef(secretCell) // Store as reference, not inline
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Withdrew from source escrow: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to withdraw from source escrow: ${error}`);
+        }
     }
 
     async refundSourceEscrow(escrowAddress: Address): Promise<void> {
-        await this.sendToEscrow(escrowAddress, Opcodes.REFUND);
-        console.log(`Refunded source escrow: ${escrowAddress.toString()}`);
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.REFUND, 32)
+                        .storeUint(0, 64) // query_id
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Refunded source escrow: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to refund source escrow: ${error}`);
+        }
     }
 
     // === DESTINATION ESCROW OPERATIONS ===
@@ -342,23 +375,84 @@ export class TonAdapter {
     }
 
     async lockDestinationEscrow(escrowAddress: Address): Promise<void> {
-        await this.sendToEscrow(escrowAddress, Opcodes.LOCK_ESCROW);
-        console.log(`Destination escrow locked: ${escrowAddress.toString()}`);
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.LOCK_ESCROW, 32)
+                        .storeUint(0, 64) // query_id
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Destination escrow locked: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to lock destination escrow: ${error}`);
+        }
     }
 
     async withdrawFromDestinationEscrow(escrowAddress: Address, secret: string): Promise<void> {
-        const secretInt = parseInt(secret.replace('0x', ''), 16);
-        const secretCell = beginCell()
-            .storeUint(secretInt, 32)
-            .endCell();
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            const secretInt = parseInt(secret.replace('0x', ''), 16);
+            const secretCell = beginCell()
+                .storeUint(secretInt, 32)
+                .endCell();
 
-        await this.sendToEscrow(escrowAddress, Opcodes.WITHDRAW, secretCell);
-        console.log(`Withdrew from destination escrow: ${escrowAddress.toString()}`);
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.WITHDRAW, 32)
+                        .storeUint(0, 64) // query_id
+                        .storeRef(secretCell)
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Withdrew from destination escrow: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to withdraw from destination escrow: ${error}`);
+        }
     }
 
     async refundDestinationEscrow(escrowAddress: Address): Promise<void> {
-        await this.sendToEscrow(escrowAddress, Opcodes.REFUND);
-        console.log(`Refunded destination escrow: ${escrowAddress.toString()}`);
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.REFUND, 32)
+                        .storeUint(0, 64) // query_id
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Refunded destination escrow: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to refund destination escrow: ${error}`);
+        }
     }
 
     // === QUERY OPERATIONS ===
@@ -368,16 +462,28 @@ export class TonAdapter {
     // === UTILITY METHODS ===
 
     generateSecret(): SecretData {
-        // Generate a random 32-bit secret
-        const secret = Math.floor(Math.random() * 0xFFFFFFFF).toString(16).padStart(8, '0');
+        // Hardcode "test123" secret for debugging
+        const testText = "test123";
         
-        // Create proper hash using SHA-256, then take first 32 bits
-        const fullHash = createHash('sha256').update(secret, 'hex').digest('hex');
-        const hash = fullHash.substring(0, 8); // First 32 bits (8 hex chars)
+        // Convert text to hex (first 4 bytes like the working script does)
+        const secretBuffer = Buffer.from(testText);
+        const secret = secretBuffer.slice(0, 4).toString('hex').padEnd(8, '0');
         
-        console.log(`🔐 Secret generation:`);
+        // Create hash the same way the contract does: cell_hash() >> 224
+        const secretCell = beginCell()
+            .storeUint(parseInt(secret, 16), 32)
+            .endCell();
+        
+        // Get cell hash and take first 32 bits (like contract does)
+        const cellHashBuffer = secretCell.hash();
+        const cellHashBigInt = BigInt('0x' + cellHashBuffer.toString('hex'));
+        const hash32bit = Number(cellHashBigInt >> 224n); // Take first 32 bits
+        const hash = hash32bit.toString(16).padStart(8, '0');
+        
+        console.log(`🔐 Secret generation (hardcoded "test123"):`);
+        console.log(`   Text: "${testText}"`);
         console.log(`   Secret: 0x${secret}`);
-        console.log(`   SHA256: ${fullHash}`);
+        console.log(`   Cell hash: ${cellHashBuffer.toString('hex')}`);
         console.log(`   Hash (32-bit): 0x${hash}`);
         
         return {

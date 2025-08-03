@@ -8,9 +8,10 @@
     "dev": "ts-node src/index.ts",
     "test": "jest",
     "test-adapter": "ts-node src/test-ton-adapter.ts",
+    "test-tron": "ts-node src/end-to-end-ton.ts",
     "clean": "rm -rf dist",
     "demo": "ts-node src/demo/relayer-demo.ts",
-    "test:ton": "ts-node src/test-ton-adapter.ts"
+    "test:ton": "ts-node src/end-to-end-ton.ts"
   },
   "keywords": ["cross-chain", "bridge", "ton", "ethereum", "relayer"],
   "author": "Orbis Team",

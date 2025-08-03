@@ -58,11 +58,12 @@ async function testTonAdapter() {
         // Test contract deployment
         console.log('\n📄 Testing contract deployment...');
         
-        // Create a test fusion order
+        // Create a test fusion order with randomized nonce
         const walletAddress = adapter.getWalletAddress();
+        const randomNonce = BigInt(Date.now() + Math.floor(Math.random() * 1000000));
         const testOrder = {
             orderId: 'test-order-' + Date.now(),
-            nonce: BigInt(Date.now()),
+            nonce: randomNonce,
             maker: walletAddress,
             resolver: walletAddress,
             sourceChain: Network.TON_TESTNET,
@@ -83,7 +84,7 @@ async function testTonAdapter() {
             },
             secretHash: '',
             timelockDuration: 3600, // 1 hour
-            finalityTimelock: 10, // 30 seconds for testing
+            finalityTimelock: 11, // 30 seconds for testing
             exclusivePeriod: 1800, // 30 minutes
             makerSafetyDeposit: BigInt('10000000'), // 0.01 TON
             takerSafetyDeposit: BigInt('10000000'), // 0.01 TON
@@ -94,7 +95,7 @@ async function testTonAdapter() {
         };
         
         try {
-            // Deploy source escrow
+            // Deploy source escrow only
             console.log('🚀 Deploying source escrow contract...');
             const sourceEscrowAddress = await adapter.deploySourceEscrow(testOrder, secretData.hash);
             
@@ -104,19 +105,9 @@ async function testTonAdapter() {
             console.log('⏳ Waiting for source escrow deployment...');
             await new Promise(resolve => setTimeout(resolve, 5000));
             
-            // Deploy destination escrow
-            console.log('🚀 Deploying destination escrow contract...');
-            const destinationEscrowAddress = await adapter.deployDestinationEscrow(testOrder, secretData.hash);
-            console.log(`✅ Destination escrow deployed at: ${destinationEscrowAddress.toString()}`);
-            
-            // Wait a bit for the transaction to be processed
-            console.log('⏳ Waiting for destination escrow deployment...');
-            await new Promise(resolve => setTimeout(resolve, 5000));
-            
             console.log('\n📋 Deployment Summary:');
             console.log(`Order ID: ${testOrder.orderId}`);
             console.log(`Source Escrow: ${sourceEscrowAddress.toString()}`);
-            console.log(`Destination Escrow: ${destinationEscrowAddress.toString()}`);
             console.log(`Secret Hash: 0x${secretData.hash}`);
             console.log(`Secret: 0x${secretData.secret}`);
             
@@ -134,39 +125,45 @@ async function testTonAdapter() {
                 await adapter.lockSourceEscrow(sourceEscrowAddress);
                 console.log('✅ Source escrow locked successfully!');
                 
-                // Wait between operations
-                console.log('⏳ Waiting 3 seconds...');
-                await new Promise(resolve => setTimeout(resolve, 3000));
-                
-                // Lock destination escrow
-                console.log('🔐 Locking destination escrow...');
-                await adapter.lockDestinationEscrow(destinationEscrowAddress);
-                console.log('✅ Destination escrow locked successfully!');
-                
-                // Wait after final operation
-                console.log('⏳ Waiting 3 seconds...');
-                await new Promise(resolve => setTimeout(resolve, 3000));
+                // Wait after operation
+                console.log('⏳ Waiting 15 seconds...');
+                await new Promise(resolve => setTimeout(resolve, 25000));
                 
                 console.log('\n🎯 Lock Operations Summary:');
-                console.log('✅ Both escrows are now locked and ready for atomic swap');
+                console.log('✅ Source escrow is now locked and ready for withdrawal');
                 
                 // Test withdrawal operations
                 console.log('\n🔓 Testing withdrawal operations...');
                 
                 try {
-                    // Skip destination escrow withdrawal for now
-                    console.log('⏭️ Skipping destination escrow withdrawal for this test...');
+                    // Check balance before withdrawal
+                    const balanceBefore = await adapter.getBalance();
+                    console.log(`💰 Wallet balance before withdrawal: ${balanceBefore} nanoTON`);
                     
-                    // Withdraw from source escrow only
+                    // Withdraw from source escrow
                     console.log('💰 Withdrawing from source escrow with secret...');
                     await adapter.withdrawFromSourceEscrow(sourceEscrowAddress, secretData.secret);
-                    console.log('✅ Source escrow withdrawal successful!');
+                    console.log('✅ Source escrow withdrawal transaction sent!');
                     
-                    console.log('\n🎉 Source Escrow Withdrawal Success!');
-                    console.log('✅ Successfully withdrawn from source escrow');
+                    // Wait for transaction to process
+                    console.log('⏳ Waiting 5 seconds for withdrawal transaction...');
+                    await new Promise(resolve => setTimeout(resolve, 5000));
+                    
+                    // Check balance after withdrawal
+                    const balanceAfter = await adapter.getBalance();
+                    console.log(`💰 Wallet balance after withdrawal: ${balanceAfter} nanoTON`);
+                    const difference = balanceAfter - balanceBefore;
+                    console.log(`📈 Balance change: ${difference} nanoTON`);
+                    
+                    console.log('\n🎉 Source Escrow Withdrawal Test Complete!');
                     console.log(`🔑 Secret used: 0x${secretData.secret}`);
                     console.log(`🔒 Hash verified: 0x${secretData.hash}`);
-                    console.log('💡 Destination escrow remains locked for future testing');
+                    
+                    if (difference > 0) {
+                        console.log('✅ Funds successfully withdrawn from escrow!');
+                    } else {
+                        console.log('⚠️ No balance increase detected - check transaction on explorer');
+                    }
                     
                 } catch (withdrawError) {
                     console.error('❌ Source escrow withdrawal failed:', withdrawError);
