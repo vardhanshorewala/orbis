@@ -8,7 +8,11 @@ import {
     toNano,
     fromNano,
     StateInit,
-    contractAddress
+    contractAddress,
+    ContractProvider,
+    Contract,
+    SendMode,
+    Sender
 } from '@ton/ton';
 import { mnemonicToPrivateKey } from '@ton/crypto';
 import {
@@ -18,9 +22,7 @@ import {
     ResolverError
 } from '../types';
 import { Logger } from '../utils';
-// Import TON contract wrappers with proper type definitions
-// Note: These would normally be imported from the compiled package
-// For now, we'll define the interfaces inline
+
 interface TonSourceEscrowConfig {
     makerAddress: Address;
     resolverAddress: Address;
@@ -77,73 +79,48 @@ class TonSourceEscrow {
         return new TonSourceEscrow(contractAddress(workchain, init), init);
     }
 
-    async sendDeploy(provider: any, value: bigint) {
-        await provider.sendTransfer({
-            seqno: await provider.contract.getSeqno(),
-            secretKey: provider.keyPair.secretKey,
-            messages: [
-                internal({
-                    to: this.address,
-                    value,
-                    init: this.init,
-                    body: beginCell().endCell()
-                })
-            ]
+    async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().endCell(),
         });
     }
 
-    async sendLock(provider: any, value: bigint) {
-        await provider.sendTransfer({
-            seqno: await provider.contract.getSeqno(),
-            secretKey: provider.keyPair.secretKey,
-            messages: [
-                internal({
-                    to: this.address,
-                    value,
-                    body: beginCell()
-                        .storeUint(SourceOpcodes.LOCK_ESCROW, 32)
-                        .storeUint(0, 64)
-                        .endCell()
-                })
-            ]
+    async sendLock(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(SourceOpcodes.LOCK_ESCROW, 32)
+                .storeUint(0, 64)
+                .endCell()
         });
     }
 
-    async sendWithdraw(provider: any, opts: { value: bigint; secret: string }) {
+    async sendWithdraw(provider: ContractProvider, via: Sender, opts: { value: bigint; secret: string }) {
         const secretInt = parseInt(opts.secret.replace('0x', ''), 16);
         const secretCell = beginCell().storeUint(secretInt, 32).endCell();
 
-        await provider.sendTransfer({
-            seqno: await provider.contract.getSeqno(),
-            secretKey: provider.keyPair.secretKey,
-            messages: [
-                internal({
-                    to: this.address,
-                    value: opts.value,
-                    body: beginCell()
-                        .storeUint(SourceOpcodes.WITHDRAW, 32)
-                        .storeUint(0, 64)
-                        .storeRef(secretCell)
-                        .endCell()
-                })
-            ]
+        await provider.internal(via, {
+            value: opts.value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(SourceOpcodes.WITHDRAW, 32)
+                .storeUint(0, 64)
+                .storeRef(secretCell)
+                .endCell()
         });
     }
 
-    async sendRefund(provider: any, value: bigint) {
-        await provider.sendTransfer({
-            seqno: await provider.contract.getSeqno(),
-            secretKey: provider.keyPair.secretKey,
-            messages: [
-                internal({
-                    to: this.address,
-                    value,
-                    body: beginCell()
-                        .storeUint(SourceOpcodes.REFUND, 32)
-                        .storeUint(0, 64)
-                        .endCell()
-                })
-            ]
+    async sendRefund(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(SourceOpcodes.REFUND, 32)
+                .storeUint(0, 64)
+                .endCell()
         });
     }
 
@@ -182,56 +159,37 @@ class TonDestinationEscrow {
         return new TonDestinationEscrow(contractAddress(workchain, init), init);
     }
 
-    async sendDeploy(provider: any, value: bigint) {
-        await provider.sendTransfer({
-            seqno: await provider.contract.getSeqno(),
-            secretKey: provider.keyPair.secretKey,
-            messages: [
-                internal({
-                    to: this.address,
-                    value,
-                    init: this.init,
-                    body: beginCell().endCell()
-                })
-            ]
+    async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell().endCell(),
         });
     }
 
-    async sendWithdraw(provider: any, opts: { value: bigint; secret: string }) {
+    async sendWithdraw(provider: ContractProvider, via: Sender, opts: { value: bigint; secret: string }) {
         const secretInt = parseInt(opts.secret.replace('0x', ''), 16);
         const secretCell = beginCell().storeUint(secretInt, 32).endCell();
 
-        await provider.sendTransfer({
-            seqno: await provider.contract.getSeqno(),
-            secretKey: provider.keyPair.secretKey,
-            messages: [
-                internal({
-                    to: this.address,
-                    value: opts.value,
-                    body: beginCell()
-                        .storeUint(DestOpcodes.WITHDRAW, 32)
-                        .storeUint(0, 64)
-                        .storeRef(secretCell)
-                        .endCell()
-                })
-            ]
+        await provider.internal(via, {
+            value: opts.value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(DestOpcodes.WITHDRAW, 32)
+                .storeUint(0, 64)
+                .storeRef(secretCell)
+                .endCell()
         });
     }
 
-    async sendRefund(provider: any, value: bigint) {
-        await provider.sendTransfer({
-            seqno: await provider.contract.getSeqno(),
-            secretKey: provider.keyPair.secretKey,
-            messages: [
-                internal({
-                    to: this.address,
-                    value,
-                    body: beginCell()
-                        .storeUint(DestOpcodes.REFUND, 32)
-                        .storeUint(0, 64)
-                        .endCell()
-                })
-            ]
+    async sendRefund(provider: ContractProvider, via: Sender, value: bigint) {
+        await provider.internal(via, {
+            value,
+            sendMode: SendMode.PAY_GAS_SEPARATELY,
+            body: beginCell()
+                .storeUint(DestOpcodes.REFUND, 32)
+                .storeUint(0, 64)
+                .endCell()
         });
     }
 
@@ -306,7 +264,7 @@ function tonDestinationEscrowConfigToCell(config: TonDestinationEscrowConfig): C
 export class TonAdapter {
     private client!: TonClient;
     private wallet!: WalletContractV4;
-    private keyPair: any;
+    private secretKey!: Buffer;
 
     constructor(
         private config: {
@@ -327,9 +285,10 @@ export class TonAdapter {
             });
 
             // Initialize wallet from mnemonic
-            this.keyPair = await mnemonicToPrivateKey(this.config.privateKey.split(' '));
+            const keyPair = await mnemonicToPrivateKey(this.config.privateKey.split(' '));
+            this.secretKey = keyPair.secretKey;
             this.wallet = WalletContractV4.create({
-                publicKey: this.keyPair.publicKey,
+                publicKey: keyPair.publicKey,
                 workchain: 0
             });
 
@@ -410,8 +369,9 @@ export class TonAdapter {
                 deployAmount = escrowAmount + safetyDeposit + toNano('0.1'); // Include gas
             }
 
-            // Deploy the contract
-            await escrowContract.sendDeploy(this.createProvider(), deployAmount);
+            // Deploy the contract using proper provider pattern
+            const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
+            await escrowContract.sendDeploy(this.client.provider(escrowContract.address), sender, deployAmount);
 
             // Wait for deployment
             await this.waitForDeploy(escrowContract.address);
@@ -468,7 +428,8 @@ export class TonAdapter {
             } else {
                 // For source escrow, use the lock operation
                 const sourceEscrow = TonSourceEscrow.createFromAddress(escrow);
-                await sourceEscrow.sendLock(this.createProvider(), toNano('0.05'));
+                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
+                await sourceEscrow.sendLock(this.client.provider(escrow), sender, toNano('0.05'));
 
                 Logger.info('✅ Lock operation sent', { escrow: escrowAddress });
             }
@@ -502,7 +463,8 @@ export class TonAdapter {
             // Try as source escrow first (most common case for resolver)
             try {
                 const sourceEscrow = TonSourceEscrow.createFromAddress(escrow);
-                await sourceEscrow.sendWithdraw(this.createProvider(), {
+                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
+                await sourceEscrow.sendWithdraw(this.client.provider(escrow), sender, {
                     value: toNano('0.05'), // Gas for withdraw
                     secret: secret.replace('0x', '').substring(0, 8) // Use first 32 bits
                 });
@@ -510,7 +472,8 @@ export class TonAdapter {
             } catch {
                 // If that fails, try as destination escrow
                 const destEscrow = TonDestinationEscrow.createFromAddress(escrow);
-                await destEscrow.sendWithdraw(this.createProvider(), {
+                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
+                await destEscrow.sendWithdraw(this.client.provider(escrow), sender, {
                     value: toNano('0.05'), // Gas for withdraw
                     secret: secret.replace('0x', '').substring(0, 8) // Use first 32 bits
                 });
@@ -539,12 +502,14 @@ export class TonAdapter {
             // Try as source escrow first
             try {
                 const sourceEscrow = TonSourceEscrow.createFromAddress(escrow);
-                await sourceEscrow.sendRefund(this.createProvider(), toNano('0.05'));
+                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
+                await sourceEscrow.sendRefund(this.client.provider(escrow), sender, toNano('0.05'));
                 Logger.info('✅ Refund sent to source escrow', { escrow: escrowAddress });
             } catch {
                 // If that fails, try as destination escrow
                 const destEscrow = TonDestinationEscrow.createFromAddress(escrow);
-                await destEscrow.sendRefund(this.createProvider(), toNano('0.05'));
+                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
+                await destEscrow.sendRefund(this.client.provider(escrow), sender, toNano('0.05'));
                 Logger.info('✅ Refund sent to destination escrow', { escrow: escrowAddress });
             }
 
@@ -646,9 +611,19 @@ export class TonAdapter {
         try {
             // First check if we have pre-compiled code in config
             if (type === 'source' && this.config.sourceEscrowCode) {
+                // Check if it's a placeholder value
+                if (this.config.sourceEscrowCode.includes('base64_encoded') ||
+                    this.config.sourceEscrowCode.length < 100) {
+                    throw new Error(`Source escrow code not properly configured. Please update TON_SOURCE_ESCROW_TEMPLATE in .env`);
+                }
                 return Cell.fromBase64(this.config.sourceEscrowCode);
             }
             if (type === 'destination' && this.config.destinationEscrowCode) {
+                // Check if it's a placeholder value
+                if (this.config.destinationEscrowCode.includes('base64_encoded') ||
+                    this.config.destinationEscrowCode.length < 100) {
+                    throw new Error(`Destination escrow code not properly configured. Please update TON_DESTINATION_ESCROW_TEMPLATE in .env`);
+                }
                 return Cell.fromBase64(this.config.destinationEscrowCode);
             }
 
@@ -684,19 +659,7 @@ export class TonAdapter {
         return await contract.getSeqno();
     }
 
-    /**
-     * Helper: Create provider wrapper for escrow contracts
-     */
-    private createProvider() {
-        return {
-            contract: this.client.open(this.wallet),
-            keyPair: this.keyPair,
-            sendTransfer: async (args: any) => {
-                const walletContract = this.client.open(this.wallet);
-                await walletContract.sendTransfer(args);
-            }
-        };
-    }
+
 
     /**
      * Helper: Deploy wallet if needed

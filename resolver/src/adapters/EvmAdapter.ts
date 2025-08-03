@@ -1,447 +1,636 @@
 import {
     JsonRpcProvider,
     Wallet,
-    Contract,
-    parseEther,
-    formatEther,
-    keccak256,
-    toUtf8Bytes,
+    TransactionRequest,
+    Interface,
+    toBigInt,
+    toBeHex,
+    zeroPadValue,
+    solidityPackedKeccak256,
     getAddress,
-    HDNodeWallet
-} from 'ethers';
-import {
-    CrossChainSwapOrder,
-    EscrowDeployment,
-    EscrowStatus,
-    ResolverError
-} from '../types';
-import { Logger } from '../utils';
+} from "ethers";
 
-// ABI snippets for escrow contracts
+// Minimal ABI definitions for factory and escrow contracts
 const ESCROW_FACTORY_ABI = [
-    'function createSrcEscrow(bytes32 secretHash, uint256 timelock, address token, uint256 amount, address maker, address resolver, uint256 safetyDeposit) returns (address)',
-    'function createDstEscrow(bytes32 secretHash, uint256 timelock, address token, uint256 amount, address maker, address resolver, uint256 safetyDeposit) returns (address)',
-    'function srcEscrowImplementation() view returns (address)',
-    'function dstEscrowImplementation() view returns (address)'
+    {
+        type: "function",
+        name: "createDstEscrow",
+        inputs: [
+            {
+                name: "dstImmutables",
+                type: "tuple",
+                components: [
+                    { name: "orderHash", type: "bytes32" },
+                    { name: "hashlock", type: "bytes32" },
+                    { name: "maker", type: "uint256" },
+                    { name: "taker", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "timelocks", type: "uint256" },
+                    { name: "parameters", type: "bytes" },
+                ],
+            },
+            { name: "srcCancellationTimestamp", type: "uint256" },
+        ],
+        outputs: [],
+        stateMutability: "payable",
+    },
+    {
+        type: "function",
+        name: "addressOfEscrowSrc",
+        inputs: [
+            {
+                name: "immutables",
+                type: "tuple",
+                components: [
+                    { name: "orderHash", type: "bytes32" },
+                    { name: "hashlock", type: "bytes32" },
+                    { name: "maker", type: "uint256" },
+                    { name: "taker", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "timelocks", type: "uint256" },
+                    { name: "parameters", type: "bytes" },
+                ],
+            },
+        ],
+        outputs: [{ name: "", type: "address" }],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "addressOfEscrowDst",
+        inputs: [
+            {
+                name: "immutables",
+                type: "tuple",
+                components: [
+                    { name: "orderHash", type: "bytes32" },
+                    { name: "hashlock", type: "bytes32" },
+                    { name: "maker", type: "uint256" },
+                    { name: "taker", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "timelocks", type: "uint256" },
+                    { name: "parameters", type: "bytes" },
+                ],
+            },
+        ],
+        outputs: [{ name: "", type: "address" }],
+        stateMutability: "view",
+    },
+    {
+        type: "event",
+        name: "SrcEscrowCreated",
+        inputs: [
+            {
+                name: "srcImmutables",
+                type: "tuple",
+                indexed: false,
+                components: [
+                    { name: "orderHash", type: "bytes32" },
+                    { name: "hashlock", type: "bytes32" },
+                    { name: "maker", type: "uint256" },
+                    { name: "taker", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "timelocks", type: "uint256" },
+                ],
+            },
+            {
+                name: "dstImmutablesComplement",
+                type: "tuple",
+                indexed: false,
+                components: [
+                    { name: "maker", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "chainId", type: "uint256" },
+                    { name: "parameters", type: "bytes" },
+                ],
+            },
+        ],
+    },
+    {
+        type: "event",
+        name: "DstEscrowCreated",
+        inputs: [
+            { name: "escrow", type: "address", indexed: false },
+            { name: "hashlock", type: "bytes32", indexed: false },
+            { name: "taker", type: "uint256", indexed: false },
+        ],
+    },
 ];
 
-const ESCROW_ABI = [
-    'function initialize(bytes32 secretHash, uint256 timelock, address token, uint256 amount, address maker, address resolver, uint256 safetyDeposit)',
-    'function lockFunds() payable',
-    'function lockTokens(uint256 amount)',
-    'function revealSecret(bytes32 secret, address recipient)',
-    'function cancel()',
-    'function getStatus() view returns (bool isLocked, bool isExecuted, bool canRefund, uint256 balance)',
-    'function secretHash() view returns (bytes32)',
-    'function timelock() view returns (uint256)',
-    'function maker() view returns (address)',
-    'function resolver() view returns (address)',
-    'function token() view returns (address)',
-    'function amount() view returns (uint256)'
+const ESCROW_SRC_ABI = [
+    {
+        type: "function",
+        name: "withdraw",
+        inputs: [
+            { name: "secret", type: "bytes32" },
+            {
+                name: "immutables",
+                type: "tuple",
+                components: [
+                    { name: "orderHash", type: "bytes32" },
+                    { name: "hashlock", type: "bytes32" },
+                    { name: "maker", type: "uint256" },
+                    { name: "taker", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "timelocks", type: "uint256" },
+                    { name: "parameters", type: "bytes" },
+                ],
+            },
+        ],
+        outputs: [],
+        stateMutability: "nonpayable",
+    },
+    {
+        type: "function",
+        name: "withdrawTo",
+        inputs: [
+            { name: "secret", type: "bytes32" },
+            { name: "target", type: "address" },
+            {
+                name: "immutables",
+                type: "tuple",
+                components: [
+                    { name: "orderHash", type: "bytes32" },
+                    { name: "hashlock", type: "bytes32" },
+                    { name: "maker", type: "uint256" },
+                    { name: "taker", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "timelocks", type: "uint256" },
+                    { name: "parameters", type: "bytes" },
+                ],
+            },
+        ],
+        outputs: [],
+        stateMutability: "nonpayable",
+    },
+    {
+        type: "function",
+        name: "cancel",
+        inputs: [
+            {
+                name: "immutables",
+                type: "tuple",
+                components: [
+                    { name: "orderHash", type: "bytes32" },
+                    { name: "hashlock", type: "bytes32" },
+                    { name: "maker", type: "uint256" },
+                    { name: "taker", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "timelocks", type: "uint256" },
+                    { name: "parameters", type: "bytes" },
+                ],
+            },
+        ],
+        outputs: [],
+        stateMutability: "nonpayable",
+    },
 ];
 
-/**
- * EVM Blockchain Adapter for Resolver
- * Handles all EVM-specific operations including escrow deployment and management
- */
+const ESCROW_DST_ABI = [
+    {
+        type: "function",
+        name: "withdraw",
+        inputs: [
+            { name: "secret", type: "bytes32" },
+            {
+                name: "immutables",
+                type: "tuple",
+                components: [
+                    { name: "orderHash", type: "bytes32" },
+                    { name: "hashlock", type: "bytes32" },
+                    { name: "maker", type: "uint256" },
+                    { name: "taker", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "timelocks", type: "uint256" },
+                    { name: "parameters", type: "bytes" },
+                ],
+            },
+        ],
+        outputs: [],
+        stateMutability: "nonpayable",
+    },
+    {
+        type: "function",
+        name: "cancel",
+        inputs: [
+            {
+                name: "immutables",
+                type: "tuple",
+                components: [
+                    { name: "orderHash", type: "bytes32" },
+                    { name: "hashlock", type: "bytes32" },
+                    { name: "maker", type: "uint256" },
+                    { name: "taker", type: "uint256" },
+                    { name: "token", type: "uint256" },
+                    { name: "amount", type: "uint256" },
+                    { name: "safetyDeposit", type: "uint256" },
+                    { name: "timelocks", type: "uint256" },
+                    { name: "parameters", type: "bytes" },
+                ],
+            },
+        ],
+        outputs: [],
+        stateMutability: "nonpayable",
+    },
+];
+
+export interface EscrowImmutables {
+    orderHash: string;
+    hashlock: string;
+    maker: bigint;
+    taker: bigint;
+    token: bigint;
+    amount: bigint;
+    safetyDeposit: bigint;
+    timelocks: bigint;
+    parameters?: string;
+}
+
+export interface DstImmutablesComplement {
+    maker: bigint;
+    amount: bigint;
+    token: bigint;
+    safetyDeposit: bigint;
+    chainId: bigint;
+    parameters: string;
+}
+
+export interface CrossChainSwapConfig {
+    escrowFactoryAddress: string;
+    sourceChainId: number;
+    destinationChainId: number;
+}
+
 export class EvmAdapter {
-    private provider!: JsonRpcProvider;
-    private wallet!: Wallet;
-    private escrowFactory?: Contract;
+    private factoryInterface = new Interface(ESCROW_FACTORY_ABI);
+    private srcEscrowInterface = new Interface(ESCROW_SRC_ABI);
+    private dstEscrowInterface = new Interface(ESCROW_DST_ABI);
 
     constructor(
-        private config: {
-            rpcUrl: string;
-            privateKey?: string;
-            mnemonic?: string;
-            chainId: number;
-            escrowFactoryAddress?: string;
-        }
+        private provider: JsonRpcProvider,
+        private config: CrossChainSwapConfig
     ) { }
 
-    async initialize(): Promise<void> {
-        try {
-            // Initialize provider
-            this.provider = new JsonRpcProvider(this.config.rpcUrl);
+    /**
+     * Create destination escrow
+     */
+    async createDestinationEscrow(
+        wallet: Wallet,
+        immutables: EscrowImmutables,
+        srcCancellationTimestamp: bigint
+    ): Promise<{
+        transactionHash: string;
+        escrowAddress: string;
+        blockTimestamp: number;
+    }> {
+        // Calculate native amount needed
+        const isNativeToken = immutables.token === 0n;
+        const nativeAmount = isNativeToken
+            ? immutables.safetyDeposit + immutables.amount
+            : immutables.safetyDeposit;
 
-            // Initialize wallet from mnemonic or private key
-            if (this.config.mnemonic) {
-                // Create wallet from mnemonic (using first account)
-                const hdWallet = HDNodeWallet.fromPhrase(this.config.mnemonic);
-                this.wallet = new Wallet(hdWallet.privateKey, this.provider);
-            } else if (this.config.privateKey) {
-                // Create wallet from private key
-                this.wallet = new Wallet(this.config.privateKey, this.provider);
-            } else {
-                throw new Error('Either mnemonic or privateKey must be provided');
-            }
+        // Build transaction
+        const tx: TransactionRequest = {
+            to: this.config.escrowFactoryAddress,
+            data: this.factoryInterface.encodeFunctionData("createDstEscrow", [
+                {
+                    ...immutables,
+                    parameters: immutables.parameters || "0x",
+                },
+                srcCancellationTimestamp,
+            ]),
+            value: nativeAmount,
+        };
 
-            // Verify chain ID
-            const network = await this.provider.getNetwork();
-            if (Number(network.chainId) !== this.config.chainId) {
-                throw new Error(`Chain ID mismatch: expected ${this.config.chainId}, got ${network.chainId}`);
-            }
+        // Execute transaction
+        const response = await wallet.sendTransaction(tx);
+        const receipt = await response.wait();
+        if (!receipt) throw new Error("Transaction failed");
 
-            // Initialize escrow factory contract if address provided
-            if (this.config.escrowFactoryAddress) {
-                this.escrowFactory = new Contract(
-                    this.config.escrowFactoryAddress,
-                    ESCROW_FACTORY_ABI,
-                    this.wallet
-                );
-            }
+        // Get block info
+        const block = await this.provider.getBlock(receipt.blockNumber);
+        if (!block) throw new Error("Block not found");
 
-            Logger.info('✅ EVM adapter initialized', {
-                address: this.wallet.address,
-                chainId: this.config.chainId,
-                factory: this.config.escrowFactoryAddress
-            });
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to initialize EVM adapter: ${errorMessage}`, {
-                code: 'EVM_INIT_ERROR',
-                chain: 'evm'
-            });
-        }
+        // Parse DstEscrowCreated event to get escrow address
+        const escrowAddress = await this.getEscrowAddressFromReceipt(
+            receipt.hash,
+            immutables.hashlock
+        );
+
+        return {
+            transactionHash: receipt.hash,
+            escrowAddress,
+            blockTimestamp: block.timestamp,
+        };
     }
 
     /**
-     * Deploy escrow contract on EVM
+     * Get source escrow address (computed deterministically)
      */
-    async deployEscrow(
-        order: CrossChainSwapOrder,
-        secretHash: string,
-        type: 'source' | 'destination'
-    ): Promise<EscrowDeployment> {
-        try {
-            if (!this.escrowFactory) {
-                throw new Error('Escrow factory not configured');
-            }
-
-            Logger.info('🚀 Deploying EVM escrow', { type, orderId: order.orderId });
-
-            // Convert secret hash to bytes32
-            const secretHashBytes32 = '0x' + secretHash;
-
-            // Safety deposit as per whitepaper (0.1 ETH equivalent)
-            const safetyDeposit = parseEther('0.01');
-
-            // Determine token address (0x0 for native ETH)
-            const tokenAddress = order.fromToken === 'ETH' || order.toToken === 'ETH'
-                ? '0x0000000000000000000000000000000000000000'
-                : order.fromToken; // Assuming token addresses are provided
-
-            // Deploy appropriate escrow type
-            const tx = type === 'source'
-                ? await this.escrowFactory.createSrcEscrow(
-                    secretHashBytes32,
-                    order.timelock,
-                    tokenAddress,
-                    parseEther(order.amount),
-                    getAddress(order.makerAddress),
-                    this.wallet.address,
-                    safetyDeposit,
-                    { value: safetyDeposit }
-                )
-                : await this.escrowFactory.createDstEscrow(
-                    secretHashBytes32,
-                    order.timelock,
-                    tokenAddress,
-                    parseEther(order.amount),
-                    getAddress(order.makerAddress),
-                    this.wallet.address,
-                    safetyDeposit,
-                    { value: safetyDeposit }
-                );
-
-            const receipt = await tx.wait();
-
-            // Extract escrow address from events
-            // TODO: Parse actual event to get deployed address
-            const escrowAddress = await this.getEscrowAddressFromReceipt(receipt);
-
-            const deployment: EscrowDeployment = {
-                chain: 'evm',
-                contractAddress: escrowAddress,
-                transactionHash: receipt.hash,
-                secretHash,
-                amount: order.amount,
-                timelock: order.timelock,
-                deployer: this.wallet.address,
-                status: EscrowStatus.DEPLOYED
-            };
-
-            Logger.info('✅ EVM escrow deployed', {
-                address: deployment.contractAddress,
-                type,
-                txHash: receipt.hash
-            });
-
-            return deployment;
-
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to deploy EVM escrow: ${errorMessage}`, {
-                code: 'EVM_DEPLOY_ERROR',
-                orderId: order.orderId,
-                chain: 'evm'
-            });
-        }
-    }
-
-    /**
-     * Lock funds in escrow
-     */
-    async lockFunds(
-        escrowAddress: string,
-        amount: string,
-        tokenAddress?: string
+    async getSourceEscrowAddress(
+        immutables: EscrowImmutables
     ): Promise<string> {
-        try {
-            Logger.info('🔒 Locking funds in EVM escrow', {
-                escrow: escrowAddress,
-                amount,
-                token: tokenAddress
-            });
+        const address = await this.provider.call({
+            to: this.config.escrowFactoryAddress,
+            data: this.factoryInterface.encodeFunctionData("addressOfEscrowSrc", [
+                {
+                    ...immutables,
+                    parameters: immutables.parameters || "0x",
+                },
+            ]),
+        });
 
-            const escrow = new Contract(escrowAddress, ESCROW_ABI, this.wallet);
-
-            let tx;
-            if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
-                // Lock native ETH
-                tx = await escrow.lockFunds({
-                    value: parseEther(amount)
-                });
-            } else {
-                // Lock ERC20 tokens
-                // First approve the escrow to spend tokens
-                const tokenContract = new Contract(
-                    tokenAddress,
-                    ['function approve(address spender, uint256 amount) returns (bool)'],
-                    this.wallet
-                );
-
-                const approveTx = await tokenContract.approve(
-                    escrowAddress,
-                    parseEther(amount)
-                );
-                await approveTx.wait();
-
-                // Then lock the tokens
-                tx = await escrow.lockTokens(parseEther(amount));
-            }
-
-            const receipt = await tx.wait();
-
-            Logger.info('✅ Funds locked', {
-                txHash: receipt.hash,
-                escrow: escrowAddress
-            });
-
-            return receipt.hash;
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to lock funds: ${errorMessage}`, {
-                code: 'EVM_LOCK_ERROR',
-                chain: 'evm'
-            });
-        }
+        return getAddress("0x" + address.slice(-40));
     }
 
     /**
-     * Reveal secret and claim funds
+     * Get destination escrow address (computed deterministically)
      */
-    async revealSecret(
+    async getDestinationEscrowAddress(
+        immutables: EscrowImmutables
+    ): Promise<string> {
+        const address = await this.provider.call({
+            to: this.config.escrowFactoryAddress,
+            data: this.factoryInterface.encodeFunctionData("addressOfEscrowDst", [
+                {
+                    ...immutables,
+                    parameters: immutables.parameters || "0x",
+                },
+            ]),
+        });
+
+        return getAddress("0x" + address.slice(-40));
+    }
+
+    /**
+     * Withdraw from source escrow
+     */
+    async withdrawFromSourceEscrow(
+        wallet: Wallet,
         escrowAddress: string,
         secret: string,
-        recipientAddress: string
-    ): Promise<string> {
-        try {
-            Logger.info('🔓 Revealing secret on EVM escrow', {
-                escrow: escrowAddress
-            });
-
-            const escrow = new Contract(escrowAddress, ESCROW_ABI, this.wallet);
-
-            // Convert secret to bytes32
-            const secretBytes32 = '0x' + secret;
-
-            const tx = await escrow.revealSecret(
-                secretBytes32,
-                getAddress(recipientAddress)
-            );
-
-            const receipt = await tx.wait();
-
-            Logger.info('✅ Secret revealed and funds claimed', {
-                txHash: receipt.hash,
-                escrow: escrowAddress
-            });
-
-            return receipt.hash;
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to reveal secret: ${errorMessage}`, {
-                code: 'EVM_REVEAL_ERROR',
-                chain: 'evm'
-            });
-        }
-    }
-
-    /**
-     * Cancel escrow and refund
-     */
-    async cancelEscrow(escrowAddress: string): Promise<string> {
-        try {
-            Logger.info('🔄 Canceling EVM escrow', { escrow: escrowAddress });
-
-            const escrow = new Contract(escrowAddress, ESCROW_ABI, this.wallet);
-
-            const tx = await escrow.cancel();
-            const receipt = await tx.wait();
-
-            Logger.info('✅ Escrow canceled', {
-                txHash: receipt.hash,
-                escrow: escrowAddress
-            });
-
-            return receipt.hash;
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to cancel escrow: ${errorMessage}`, {
-                code: 'EVM_CANCEL_ERROR',
-                chain: 'evm'
-            });
-        }
-    }
-
-    /**
-     * Get escrow status
-     */
-    async getEscrowStatus(escrowAddress: string): Promise<{
-        isLocked: boolean;
-        isExecuted: boolean;
-        canRefund: boolean;
-        balance: string;
+        immutables: EscrowImmutables,
+        target?: string
+    ): Promise<{
+        transactionHash: string;
+        blockTimestamp: number;
     }> {
-        try {
-            const escrow = new Contract(escrowAddress, ESCROW_ABI, this.provider);
+        const data = target
+            ? this.srcEscrowInterface.encodeFunctionData("withdrawTo", [
+                secret,
+                target,
+                {
+                    ...immutables,
+                    parameters: immutables.parameters || "0x",
+                },
+            ])
+            : this.srcEscrowInterface.encodeFunctionData("withdraw", [
+                secret,
+                {
+                    ...immutables,
+                    parameters: immutables.parameters || "0x",
+                },
+            ]);
 
-            const [isLocked, isExecuted, canRefund, balance] = await escrow.getStatus();
+        const tx: TransactionRequest = {
+            to: escrowAddress,
+            data,
+        };
 
-            return {
-                isLocked,
-                isExecuted,
-                canRefund,
-                balance: formatEther(balance)
-            };
+        const response = await wallet.sendTransaction(tx);
+        const receipt = await response.wait();
+        if (!receipt) throw new Error("Transaction failed");
 
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to get escrow status: ${errorMessage}`, {
-                code: 'EVM_STATUS_ERROR',
-                chain: 'evm'
-            });
-        }
+        const block = await this.provider.getBlock(receipt.blockNumber);
+        if (!block) throw new Error("Block not found");
+
+        return {
+            transactionHash: receipt.hash,
+            blockTimestamp: block.timestamp,
+        };
     }
 
     /**
-     * Get wallet balance
+     * Withdraw from destination escrow
      */
-    async getBalance(tokenAddress?: string): Promise<string> {
-        try {
-            if (!tokenAddress || tokenAddress === '0x0000000000000000000000000000000000000000') {
-                // Get ETH balance
-                const balance = await this.provider.getBalance(this.wallet.address);
-                return formatEther(balance);
-            } else {
-                // Get ERC20 balance
-                const tokenContract = new Contract(
-                    tokenAddress,
-                    ['function balanceOf(address account) view returns (uint256)'],
-                    this.provider
-                );
-                const balance = await tokenContract.balanceOf(this.wallet.address);
-                return formatEther(balance);
-            }
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to get balance: ${errorMessage}`, {
-                code: 'EVM_BALANCE_ERROR',
-                chain: 'evm'
-            });
-        }
+    async withdrawFromDestinationEscrow(
+        wallet: Wallet,
+        escrowAddress: string,
+        secret: string,
+        immutables: EscrowImmutables
+    ): Promise<{
+        transactionHash: string;
+        blockTimestamp: number;
+    }> {
+        const tx: TransactionRequest = {
+            to: escrowAddress,
+            data: this.dstEscrowInterface.encodeFunctionData("withdraw", [
+                secret,
+                {
+                    ...immutables,
+                    parameters: immutables.parameters || "0x",
+                },
+            ]),
+        };
+
+        const response = await wallet.sendTransaction(tx);
+        const receipt = await response.wait();
+        if (!receipt) throw new Error("Transaction failed");
+
+        const block = await this.provider.getBlock(receipt.blockNumber);
+        if (!block) throw new Error("Block not found");
+
+        return {
+            transactionHash: receipt.hash,
+            blockTimestamp: block.timestamp,
+        };
     }
 
     /**
-     * Estimate gas for a transaction
+     * Cancel source escrow
      */
-    async estimateGas(
-        to: string,
-        data: string,
-        value?: string
-    ): Promise<{ gasLimit: bigint; gasPrice: bigint; totalCost: string }> {
-        try {
-            const tx = {
-                to,
-                data,
-                value: value ? parseEther(value) : undefined
-            };
+    async cancelSourceEscrow(
+        wallet: Wallet,
+        escrowAddress: string,
+        immutables: EscrowImmutables
+    ): Promise<{
+        transactionHash: string;
+        blockTimestamp: number;
+    }> {
+        const tx: TransactionRequest = {
+            to: escrowAddress,
+            data: this.srcEscrowInterface.encodeFunctionData("cancel", [
+                {
+                    ...immutables,
+                    parameters: immutables.parameters || "0x",
+                },
+            ]),
+        };
 
-            const gasLimit = await this.wallet.estimateGas(tx);
-            const feeData = await this.provider.getFeeData();
-            const gasPrice = feeData.gasPrice || BigInt(0);
-            const totalCost = formatEther(gasLimit * gasPrice);
+        const response = await wallet.sendTransaction(tx);
+        const receipt = await response.wait();
+        if (!receipt) throw new Error("Transaction failed");
 
-            return { gasLimit, gasPrice, totalCost };
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to estimate gas: ${errorMessage}`, {
-                code: 'EVM_GAS_ERROR',
-                chain: 'evm'
-            });
-        }
+        const block = await this.provider.getBlock(receipt.blockNumber);
+        if (!block) throw new Error("Block not found");
+
+        return {
+            transactionHash: receipt.hash,
+            blockTimestamp: block.timestamp,
+        };
     }
 
     /**
-     * Helper: Extract escrow address from deployment receipt
+     * Cancel destination escrow
      */
-    private async getEscrowAddressFromReceipt(receipt: any): Promise<string> {
-        // TODO: Parse actual event logs to extract deployed escrow address
-        // For now, return a placeholder
-        if (receipt.logs && receipt.logs.length > 0) {
-            // Typically the escrow address would be in the event logs
-            // Look for EscrowCreated event or similar
-            const deployedEvent = receipt.logs.find((log: any) =>
-                log.topics[0] === keccak256(toUtf8Bytes('EscrowCreated(address,address,bytes32)'))
+    async cancelDestinationEscrow(
+        wallet: Wallet,
+        escrowAddress: string,
+        immutables: EscrowImmutables
+    ): Promise<{
+        transactionHash: string;
+        blockTimestamp: number;
+    }> {
+        const tx: TransactionRequest = {
+            to: escrowAddress,
+            data: this.dstEscrowInterface.encodeFunctionData("cancel", [
+                {
+                    ...immutables,
+                    parameters: immutables.parameters || "0x",
+                },
+            ]),
+        };
+
+        const response = await wallet.sendTransaction(tx);
+        const receipt = await response.wait();
+        if (!receipt) throw new Error("Transaction failed");
+
+        const block = await this.provider.getBlock(receipt.blockNumber);
+        if (!block) throw new Error("Block not found");
+
+        return {
+            transactionHash: receipt.hash,
+            blockTimestamp: block.timestamp,
+        };
+    }
+
+    /**
+     * Get SrcEscrowCreated event from transaction
+     */
+    async getSrcEscrowCreatedEvent(
+        blockHash: string,
+        orderHash?: string
+    ): Promise<{
+        srcImmutables: EscrowImmutables;
+        dstImmutablesComplement: DstImmutablesComplement;
+    }> {
+        const logs = await this.provider.getLogs({
+            blockHash,
+            address: this.config.escrowFactoryAddress,
+            topics: [this.factoryInterface.getEvent("SrcEscrowCreated")!.topicHash],
+        });
+
+        for (const log of logs) {
+            const decoded = this.factoryInterface.decodeEventLog(
+                "SrcEscrowCreated",
+                log.data,
+                log.topics
             );
 
-            if (deployedEvent) {
-                // Extract address from event data
-                return '0x' + deployedEvent.topics[1].slice(26);
+            if (!orderHash || decoded.srcImmutables.orderHash === orderHash) {
+                return {
+                    srcImmutables: {
+                        orderHash: decoded.srcImmutables.orderHash,
+                        hashlock: decoded.srcImmutables.hashlock,
+                        maker: decoded.srcImmutables.maker,
+                        taker: decoded.srcImmutables.taker,
+                        token: decoded.srcImmutables.token,
+                        amount: decoded.srcImmutables.amount,
+                        safetyDeposit: decoded.srcImmutables.safetyDeposit,
+                        timelocks: decoded.srcImmutables.timelocks,
+                    },
+                    dstImmutablesComplement: {
+                        maker: decoded.dstImmutablesComplement.maker,
+                        amount: decoded.dstImmutablesComplement.amount,
+                        token: decoded.dstImmutablesComplement.token,
+                        safetyDeposit: decoded.dstImmutablesComplement.safetyDeposit,
+                        chainId: decoded.dstImmutablesComplement.chainId,
+                        parameters: decoded.dstImmutablesComplement.parameters,
+                    },
+                };
             }
         }
 
-        throw new Error('Could not extract escrow address from receipt');
+        throw new Error("SrcEscrowCreated event not found");
     }
 
     /**
-     * Get chain name
+     * Get escrow address from DstEscrowCreated event
      */
-    getChainName(): string {
-        switch (this.config.chainId) {
-            case 1: return 'Ethereum';
-            case 11155111: return 'Sepolia';
-            case 137: return 'Polygon';
-            case 56: return 'BSC';
-            default: return `Chain ${this.config.chainId}`;
+    private async getEscrowAddressFromReceipt(
+        txHash: string,
+        hashlock: string
+    ): Promise<string> {
+        const receipt = await this.provider.getTransactionReceipt(txHash);
+        if (!receipt) throw new Error("Transaction receipt not found");
+
+        const logs = receipt.logs.filter(
+            (log) =>
+                log.address.toLowerCase() ===
+                this.config.escrowFactoryAddress.toLowerCase() &&
+                log.topics[0] ===
+                this.factoryInterface.getEvent("DstEscrowCreated")!.topicHash
+        );
+
+        for (const log of logs) {
+            const decoded = this.factoryInterface.decodeEventLog(
+                "DstEscrowCreated",
+                log.data,
+                log.topics
+            );
+
+            if (decoded.hashlock.toLowerCase() === hashlock.toLowerCase()) {
+                return decoded.escrow;
+            }
         }
+
+        throw new Error("DstEscrowCreated event not found");
     }
 
     /**
-     * Get wallet address
+     * Helper to calculate immutables hash (for validation)
      */
-    async getAddress(): Promise<string> {
-        return this.wallet.address;
+    calculateImmutablesHash(immutables: EscrowImmutables): string {
+        return solidityPackedKeccak256(
+            ["bytes32", "bytes32", "uint256", "uint256", "uint256", "uint256", "uint256", "uint256"],
+            [
+                immutables.orderHash,
+                immutables.hashlock,
+                immutables.maker,
+                immutables.taker,
+                immutables.token,
+                immutables.amount,
+                immutables.safetyDeposit,
+                immutables.timelocks,
+            ]
+        );
     }
 }
