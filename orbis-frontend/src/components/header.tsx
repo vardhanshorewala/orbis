@@ -2,8 +2,14 @@
 
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { TonConnectButton } from '@tonconnect/ui-react';
+import { env } from '~/env';
+import { useEffect } from 'react';
 
 export function Header() {
+  useEffect(() => {
+    console.log('TON Manifest URL:', env.NEXT_PUBLIC_TON_MANIFEST_URL);
+  }, []);
+
   return (
     <header className="w-full border-b border-gray-800 bg-black/50 backdrop-blur-xl">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-4">
@@ -16,18 +22,9 @@ export function Header() {
           </span>
         </div>
         <div className="flex items-center gap-6">
-          <div className="flex flex-col items-end gap-1">
-            <span className="text-xs font-medium text-purple-400">Ethereum</span>
-            <div className="rounded-lg bg-gray-900/50 p-1">
-              <ConnectButton />
-            </div>
-          </div>
-          <div className="h-12 w-px bg-gradient-to-b from-transparent via-gray-600 to-transparent" />
-          <div className="flex flex-col items-end gap-1">
-            <span className="text-xs font-medium text-cyan-400">TON</span>
-            <div className="rounded-lg bg-gray-900/50 p-1">
-              <TonConnectButton />
-            </div>
+          <div className="flex flex-col items-end gap-2">
+            <ConnectButton showBalance={false} chainStatus="icon" />
+            <TonConnectButton />
           </div>
         </div>
       </div>
