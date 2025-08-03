@@ -1,0 +1,3 @@
+[submodule "cross-chain-sdk-ton"]
+	path = cross-chain-sdk-ton
+	url = git@github.com:vardhanshorewala/cross-chain-sdk-ton.git
