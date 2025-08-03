@@ -1,6 +1,5 @@
 import { Header } from "~/components/header";
 import { SwapWidget } from "~/components/swap-widget";
-import { EscrowInteraction } from "~/components/escrow-interaction";
 
 export default function HomePage() {
   return (
@@ -17,12 +16,9 @@ export default function HomePage() {
         <Header />
         
         <main className="container mx-auto px-4 py-12">
-          <div className="grid gap-8 lg:grid-cols-2">
-            <div>
+          <div className="flex justify-center">
+            <div className="w-full max-w-2xl">
               <SwapWidget />
-            </div>
-            <div>
-              <EscrowInteraction />
             </div>
           </div>
         </main>

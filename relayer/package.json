@@ -5,7 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
-    "dev": "ts-node src/index.ts",
+    "dev": "ts-node src/example.ts",
+    "start": "ts-node src/example.ts",
     "test": "jest",
     "test-adapter": "ts-node src/test-ton-adapter.ts",
     "test-tron": "ts-node src/end-to-end-ton.ts",
