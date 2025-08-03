@@ -86,8 +86,10 @@ export function SwapWidget() {
 
       console.log('Creating order:', orderRequest);
 
-      // Create order on relayer
-      const response = await relayerAPI.createOrder(orderRequest);
+      // Create order on relayer using appropriate endpoint
+      const response = direction === 'ETH_TO_TON' 
+        ? await relayerAPI.createEvmToTonOrder(orderRequest)
+        : await relayerAPI.createOrder(orderRequest);
       
       console.log('Order created successfully:', response);
 

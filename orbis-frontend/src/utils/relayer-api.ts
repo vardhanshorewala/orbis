@@ -47,6 +47,27 @@ export class RelayerAPI {
     }
 
     /**
+     * Create a new EVM to TON order on the relayer
+     */
+    async createEvmToTonOrder(orderRequest: CreateOrderRequest): Promise<CreateOrderResponse> {
+        const response = await fetch(`${this.baseUrl}/processorderevmtoton`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(orderRequest),
+        });
+
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.error || `Failed to create EVM to TON order: ${response.statusText}`);
+        }
+
+        return result;
+    }
+
+    /**
      * Signal that it's safe to send secrets for an order
      */
     async signalSafeToSendSecret(orderId: string, phase: string): Promise<void> {
