@@ -121,9 +121,9 @@ async function testTonAdapter() {
             console.log(`Secret: 0x${secretData.secret}`);
             
             // Wait for contracts to be fully deployed and finality timelock to pass
-            console.log('\n⏳ Waiting 35 seconds for contracts to be deployed and finality timelock to pass...');
-            console.log('💡 The contract requires waiting for the finality timelock period (30s) before locking');
-            await new Promise(resolve => setTimeout(resolve, 35000));
+            console.log('\n⏳ Waiting 15 seconds for contracts to be deployed and finality timelock to pass...');
+            console.log('💡 The contract requires waiting for the finality timelock period (10s) before locking');
+            await new Promise(resolve => setTimeout(resolve, 15000));
             
             // Test locking operations
             console.log('\n🔒 Testing contract locking operations...');
@@ -149,10 +149,32 @@ async function testTonAdapter() {
                 
                 console.log('\n🎯 Lock Operations Summary:');
                 console.log('✅ Both escrows are now locked and ready for atomic swap');
-                console.log('💡 Next steps would be:');
-                console.log('   1. Maker reveals secret to withdraw from destination escrow');
-                console.log('   2. Taker uses revealed secret to withdraw from source escrow');
-                console.log('   3. Or either party can refund after timelock expires');
+                
+                // Test withdrawal operations
+                console.log('\n🔓 Testing withdrawal operations...');
+                
+                try {
+                    // Skip destination escrow withdrawal for now
+                    console.log('⏭️ Skipping destination escrow withdrawal for this test...');
+                    
+                    // Withdraw from source escrow only
+                    console.log('💰 Withdrawing from source escrow with secret...');
+                    await adapter.withdrawFromSourceEscrow(sourceEscrowAddress, secretData.secret);
+                    console.log('✅ Source escrow withdrawal successful!');
+                    
+                    console.log('\n🎉 Source Escrow Withdrawal Success!');
+                    console.log('✅ Successfully withdrawn from source escrow');
+                    console.log(`🔑 Secret used: 0x${secretData.secret}`);
+                    console.log(`🔒 Hash verified: 0x${secretData.hash}`);
+                    console.log('💡 Destination escrow remains locked for future testing');
+                    
+                } catch (withdrawError) {
+                    console.error('❌ Source escrow withdrawal failed:', withdrawError);
+                    console.log('💡 This might be due to invalid secret or contract state issues');
+                    
+                    // If withdrawal fails, show refund option
+                    console.log('\n🔄 Alternative: Refund operations would be available after timelock expires');
+                }
                 
             } catch (lockError) {
                 console.error('❌ Contract locking failed:', lockError);

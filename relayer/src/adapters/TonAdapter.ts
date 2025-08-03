@@ -11,6 +11,7 @@ import {
     SendMode,
     contractAddress
 } from '@ton/core';
+import { createHash } from 'crypto';
 import { TonClient, WalletContractV5R1, WalletContractV3R2, WalletContractV4 } from '@ton/ton';
 import { mnemonicToWalletKey } from '@ton/crypto';
 import { 
@@ -367,9 +368,17 @@ export class TonAdapter {
     // === UTILITY METHODS ===
 
     generateSecret(): SecretData {
-        // Generate a random 32-bit secret for testing
+        // Generate a random 32-bit secret
         const secret = Math.floor(Math.random() * 0xFFFFFFFF).toString(16).padStart(8, '0');
-        const hash = secret; // For simplicity, using secret as hash in testing
+        
+        // Create proper hash using SHA-256, then take first 32 bits
+        const fullHash = createHash('sha256').update(secret, 'hex').digest('hex');
+        const hash = fullHash.substring(0, 8); // First 32 bits (8 hex chars)
+        
+        console.log(`🔐 Secret generation:`);
+        console.log(`   Secret: 0x${secret}`);
+        console.log(`   SHA256: ${fullHash}`);
+        console.log(`   Hash (32-bit): 0x${hash}`);
         
         return {
             secret: secret,
