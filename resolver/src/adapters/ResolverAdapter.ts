@@ -5,7 +5,9 @@ import {
     Interface,
     toBigInt,
     solidityPacked,
+    Signature,
 } from "ethers";
+// import Sdk from '@1inch/cross-chain-sdk'
 
 // Resolver contract ABI
 const RESOLVER_ABI = [
@@ -155,6 +157,7 @@ export interface ResolverConfig {
 
 export class ResolverAdapter {
     private resolverInterface = new Interface(RESOLVER_ABI);
+    srcAddress: string | undefined;
 
     constructor(
         private provider: JsonRpcProvider,
@@ -215,6 +218,8 @@ export class ResolverAdapter {
             blockTimestamp: block.timestamp,
         };
     }
+
+
 
     /**
      * Deploy destination escrow through resolver

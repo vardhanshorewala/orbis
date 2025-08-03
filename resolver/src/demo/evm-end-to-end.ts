@@ -87,106 +87,106 @@ export async function main() {
         Logger.info(`   Secret Hash: ${order.secretHash}`);
         Logger.info(`   Amount: ${formatEther(order.amount)} ETH`);
 
-        // ----------------------------------------------------------------------------
-        // SCENARIO 1: Source Escrow (Maker locks funds, Taker withdraws with secret)
-        // ----------------------------------------------------------------------------
-        Logger.info(chalk.yellow('\n=== SCENARIO 1: Source Escrow Flow ===\n'));
+        // // ----------------------------------------------------------------------------
+        // // SCENARIO 1: Source Escrow (Maker locks funds, Taker withdraws with secret)
+        // // ----------------------------------------------------------------------------
+        // Logger.info(chalk.yellow('\n=== SCENARIO 1: Source Escrow Flow ===\n'));
 
-        // Step 1: Calculate source escrow address
-        // For the demo, we'll use zero fees
+        // // Step 1: Calculate source escrow address
+        // // For the demo, we'll use zero fees
         const protocolFeeAmount = 0n;
         const integratorFeeAmount = 0n;
         const protocolFeeRecipient = addressToUint256('0x0000000000000000000000000000000000000000');
         const integratorFeeRecipient = addressToUint256('0x0000000000000000000000000000000000000000');
 
-        // Encode the parameters field as the contract expects
+        // // Encode the parameters field as the contract expects
         const abiCoder = new AbiCoder();
         const parameters = abiCoder.encode(
             ['uint256', 'uint256', 'uint256', 'uint256'],
             [protocolFeeAmount, integratorFeeAmount, protocolFeeRecipient, integratorFeeRecipient]
         );
 
-        const srcImmutables: EscrowImmutables = {
-            orderHash: order.orderHash,
-            hashlock: order.secretHash,
-            maker: addressToUint256(makerAddress),
-            taker: addressToUint256(takerAddress),
-            token: 0n, // Native ETH
-            amount: order.amount,
-            safetyDeposit: order.safetyDeposit,
-            timelocks: BigInt(order.timelock),
-            parameters: parameters,
-        };
+        // const srcImmutables: EscrowImmutables = {
+        //     orderHash: order.orderHash,
+        //     hashlock: order.secretHash,
+        //     maker: addressToUint256(makerAddress),
+        //     taker: addressToUint256(takerAddress),
+        //     token: 0n, // Native ETH
+        //     amount: order.amount,
+        //     safetyDeposit: order.safetyDeposit,
+        //     timelocks: BigInt(order.timelock),
+        //     parameters: parameters,
+        // };
 
-        Logger.info('📍 Getting source escrow address...');
-        const srcEscrowAddress = await adapter.getSourceEscrowAddress(srcImmutables);
-        Logger.info(`✅ Source escrow address: ${srcEscrowAddress}`);
+        // Logger.info('📍 Getting source escrow address...');
+        // const srcEscrowAddress = await adapter.getSourceEscrowAddress(srcImmutables);
+        // Logger.info(`✅ Source escrow address: ${srcEscrowAddress}`);
 
-        // Step 2: Maker sends funds to source escrow
-        Logger.info('\n💸 Maker sending funds to source escrow...');
-        const srcFundTx = await wallet.sendTransaction({
-            to: srcEscrowAddress,
-            value: order.amount + order.safetyDeposit,
-        });
-        await srcFundTx.wait();
-        Logger.info(`✅ Funds sent! TX: ${srcFundTx.hash}`);
+        // // Step 2: Maker sends funds to source escrow
+        // Logger.info('\n💸 Maker sending funds to source escrow...');
+        // const srcFundTx = await wallet.sendTransaction({
+        //     to: srcEscrowAddress,
+        //     value: order.amount + order.safetyDeposit,
+        // });
+        // await srcFundTx.wait();
+        // Logger.info(`✅ Funds sent! TX: ${srcFundTx.hash}`);
 
-        // Check escrow balance
-        const escrowBalance = await provider.getBalance(srcEscrowAddress);
-        Logger.info(`📊 Escrow balance: ${formatEther(escrowBalance)} ETH`);
+        // // Check escrow balance
+        // const escrowBalance = await provider.getBalance(srcEscrowAddress);
+        // Logger.info(`📊 Escrow balance: ${formatEther(escrowBalance)} ETH`);
 
-        // Step 3: Taker withdraws using secret
-        Logger.info('\n🔓 Taker withdrawing from source escrow with secret...');
-        const withdrawResult = await adapter.withdrawFromSourceEscrow(
-            wallet,
-            srcEscrowAddress,
-            order.secret,
-            srcImmutables
-        );
-        Logger.info(`✅ Withdrawn! TX: ${withdrawResult.transactionHash}`);
+        // // Step 3: Taker withdraws using secret
+        // Logger.info('\n🔓 Taker withdrawing from source escrow with secret...');
+        // const withdrawResult = await adapter.withdrawFromSourceEscrow(
+        //     wallet,
+        //     srcEscrowAddress,
+        //     order.secret,
+        //     srcImmutables
+        // );
+        // Logger.info(`✅ Withdrawn! TX: ${withdrawResult.transactionHash}`);
 
 
-        // ----------------------------------------------------------------------------
-        // SCENARIO 3: Cancellation Flow
-        // ----------------------------------------------------------------------------
-        Logger.info(chalk.yellow('\n=== SCENARIO 3: Cancellation Flow (Demo) ===\n'));
+        // // ----------------------------------------------------------------------------
+        // // SCENARIO 3: Cancellation Flow
+        // // ----------------------------------------------------------------------------
+        // Logger.info(chalk.yellow('\n=== SCENARIO 3: Cancellation Flow (Demo) ===\n'));
 
-        // Create a new order that we'll cancel
-        const cancelOrder = createDemoOrder(makerAddress, takerAddress);
-        const cancelImmutables: EscrowImmutables = {
-            orderHash: cancelOrder.orderHash,
-            hashlock: cancelOrder.secretHash,
-            maker: addressToUint256(makerAddress),
-            taker: addressToUint256(takerAddress),
-            token: 0n,
-            amount: parseEther('0.005'),
-            safetyDeposit: parseEther('0.0005'),
-            timelocks: BigInt(Math.floor(Date.now() / 1000) + 60), // 1 minute (short for demo)
-        };
+        // // Create a new order that we'll cancel
+        // const cancelOrder = createDemoOrder(makerAddress, takerAddress);
+        // const cancelImmutables: EscrowImmutables = {
+        //     orderHash: cancelOrder.orderHash,
+        //     hashlock: cancelOrder.secretHash,
+        //     maker: addressToUint256(makerAddress),
+        //     taker: addressToUint256(takerAddress),
+        //     token: 0n,
+        //     amount: parseEther('0.005'),
+        //     safetyDeposit: parseEther('0.0005'),
+        //     timelocks: BigInt(Math.floor(Date.now() / 1000) + 60), // 1 minute (short for demo)
+        // };
 
-        Logger.info('📍 Getting source escrow address for cancellation demo...');
-        const cancelSrcAddress = await adapter.getSourceEscrowAddress(cancelImmutables);
-        Logger.info(`✅ Source escrow address: ${cancelSrcAddress}`);
+        // Logger.info('📍 Getting source escrow address for cancellation demo...');
+        // const cancelSrcAddress = await adapter.getSourceEscrowAddress(cancelImmutables);
+        // Logger.info(`✅ Source escrow address: ${cancelSrcAddress}`);
 
-        // Fund it
-        Logger.info('💸 Funding escrow...');
-        const cancelFundTx = await wallet.sendTransaction({
-            to: cancelSrcAddress,
-            value: cancelImmutables.amount + cancelImmutables.safetyDeposit,
-        });
-        await cancelFundTx.wait();
-        Logger.info(`✅ Funded! TX: ${cancelFundTx.hash}`);
+        // // Fund it
+        // Logger.info('💸 Funding escrow...');
+        // const cancelFundTx = await wallet.sendTransaction({
+        //     to: cancelSrcAddress,
+        //     value: cancelImmutables.amount + cancelImmutables.safetyDeposit,
+        // });
+        // await cancelFundTx.wait();
+        // Logger.info(`✅ Funded! TX: ${cancelFundTx.hash}`);
 
-        Logger.info('\n⏳ Waiting for timelock to expire (65 seconds)...');
-        await new Promise(resolve => setTimeout(resolve, 65000));
+        // Logger.info('\n⏳ Waiting for timelock to expire (65 seconds)...');
+        // await new Promise(resolve => setTimeout(resolve, 65000));
 
-        Logger.info('🚫 Cancelling source escrow...');
-        const cancelResult = await adapter.cancelSourceEscrow(
-            wallet,
-            cancelSrcAddress,
-            cancelImmutables
-        );
-        Logger.info(`✅ Cancelled! TX: ${cancelResult.transactionHash}`);
+        // Logger.info('🚫 Cancelling source escrow...');
+        // const cancelResult = await adapter.cancelSourceEscrow(
+        //     wallet,
+        //     cancelSrcAddress,
+        //     cancelImmutables
+        // );
+        // Logger.info(`✅ Cancelled! TX: ${cancelResult.transactionHash}`);
 
         // ----------------------------------------------------------------------------
         // SCENARIO 4: Using Resolver Contract
@@ -197,6 +197,7 @@ export async function main() {
         if (resolverAddress) {
             Logger.info(chalk.yellow('\n=== SCENARIO 4: Destination Escrow via Resolver Contract ===\n'));
             Logger.info(`📍 Using Resolver at: ${resolverAddress}`);
+            Logger.info(`🔑 Calling from wallet: ${wallet.address}`);
 
             // Create ResolverAdapter
             const resolverConfig: ResolverConfig = {
@@ -226,6 +227,14 @@ export async function main() {
             try {
                 // Step 1: Deploy destination escrow through resolver
                 Logger.info('🏗️  Deploying destination escrow through resolver...');
+
+                // Debug: Log the value being sent
+                const isNativeToken = resolverImmutables.token === 0n;
+                const nativeAmount = isNativeToken
+                    ? resolverImmutables.safetyDeposit + resolverImmutables.amount
+                    : resolverImmutables.safetyDeposit;
+                Logger.info(`💸 Sending ${formatEther(nativeAmount)} ETH with deployment`);
+
                 const dstResolverResult = await resolverAdapter.deployDstEscrow(
                     wallet,
                     resolverImmutables,
@@ -240,15 +249,15 @@ export async function main() {
                 if (!dstResolverReceipt) {
                     throw new Error('Transaction receipt not found');
                 }
-                
+
                 // Debug: Check all logs in the transaction
                 Logger.info(`📝 Transaction logs: ${dstResolverReceipt.logs.length} logs found`);
-                
+
                 // Look for DstEscrowCreated event from the factory
                 // The factory address is in our config
                 const factoryAddress = config.evm.escrowFactory || '0x5E6c65b99cC2Cc6eFD3Fc0D39336dA2491404008';
                 let escrowAddressFromEvent: string | null = null;
-                
+
                 for (const log of dstResolverReceipt.logs) {
                     if (log.address.toLowerCase() === factoryAddress.toLowerCase()) {
                         Logger.info(`📍 Found log from factory at index ${log.index}`);
@@ -268,24 +277,24 @@ export async function main() {
                         }
                     }
                 }
-                
+
                 // Also calculate what it should be
                 const calculatedAddress = await adapter.getDestinationEscrowAddress(resolverImmutables);
                 Logger.info(`📍 Calculated destination escrow: ${calculatedAddress}`);
-                
+
                 // Use the event address if available, otherwise calculated
                 const dstResolverAddress = escrowAddressFromEvent || calculatedAddress;
 
                 // Check balance
                 const resolverEscrowBalance = await provider.getBalance(dstResolverAddress);
                 Logger.info(`💰 Escrow balance: ${formatEther(resolverEscrowBalance)} ETH`);
-                
+
                 // Verify the escrow exists
                 const escrowCode = await provider.getCode(dstResolverAddress);
                 if (escrowCode === '0x') {
                     Logger.error('❌ No contract found at the escrow address!');
                     Logger.info('📝 This might be due to timestamp differences in address calculation.');
-                    
+
                     // Let's check if the escrow was created at a different address
                     // by adjusting the timelocks with the block timestamp
                     const adjustedImmutables = {
@@ -300,6 +309,7 @@ export async function main() {
                     }
                 }
 
+                // 
                 // Step 3: Withdraw through resolver
                 Logger.info('\n🔓 Withdrawing through resolver...');
 
@@ -308,7 +318,8 @@ export async function main() {
                     ...resolverImmutables,
                     timelocks: resolverImmutables.timelocks, // The resolver will handle timestamp adjustment
                 };
-
+                // Add a 30 second delay
+                await new Promise(resolve => setTimeout(resolve, 30000));
                 const withdrawResolverResult = await resolverAdapter.withdraw(
                     wallet,
                     dstResolverAddress,

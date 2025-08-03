@@ -188,14 +188,38 @@ program
 program
     .command('demo')
     .description('Run a demo swap')
-    .option('-t, --type <type>', 'Demo type: simple, e2e, or cross-chain', 'simple')
+    .option('-t, --type <type>', 'Demo type: simple, evm, e2e, evm-e2e, same-chain, factory, or cross-chain', 'simple')
     .action(async (options) => {
         try {
             switch (options.type) {
+                case 'evm':
+                    console.log(chalk.blue('🚀 Running EVM escrow demo...'));
+                    const { runEvmDemo } = await import('./demo/evm-demo');
+                    await runEvmDemo();
+                    break;
+
                 case 'e2e':
                     console.log(chalk.blue('🚀 Running end-to-end demo...'));
                     const { main: runE2E } = await import('./demo/end-to-end');
                     await runE2E();
+                    break;
+
+                case 'evm-e2e':
+                    console.log(chalk.blue('🚀 Running EVM end-to-end demo...'));
+                    const { main: runEvmE2E } = await import('./demo/evm-end-to-end');
+                    await runEvmE2E();
+                    break;
+
+                case 'same-chain':
+                    console.log(chalk.blue('🔄 Running same-chain swap demo...'));
+                    const { main: runSameChain } = await import('./demo/same-chain-swap');
+                    await runSameChain();
+                    break;
+
+                case 'factory':
+                    console.log(chalk.blue('🏭 Running factory demo...'));
+                    const { main: runFactory } = await import('./demo/simple-factory-demo');
+                    await runFactory();
                     break;
 
                 case '1inch':
@@ -212,19 +236,19 @@ program
                     const config = loadConfig();
                     const resolver = new TonResolver(config);
 
-                    // Create a demo order
+                    // Create a demo order for EVM to EVM swap
                     const demoOrder: CrossChainSwapOrder = {
                         orderId: `demo_${Date.now()}`,
-                        maker: 'EQD0vdSA_NedR9uvbgN9EikRX-suesDxGeFg69XQMavfLqxa',
-                        sourceChain: 'ton',
+                        maker: '0x1234567890123456789012345678901234567890', // Example EVM address
+                        sourceChain: 'evm',
                         destinationChain: 'evm',
-                        fromToken: 'TON',
-                        toToken: 'USDC',
-                        amount: '1',
-                        minReceiveAmount: '0.95',
-                        secretHash: '',
+                        fromToken: 'USDC',
+                        toToken: 'USDT',
+                        amount: '100',
+                        minReceiveAmount: '95',
+                        secretHash: '0x' + require('crypto').randomBytes(32).toString('hex'),
                         timelock: Math.floor(Date.now() / 1000) + 3600,
-                        makerAddress: 'EQD0vdSA_NedR9uvbgN9EikRX-suesDxGeFg69XQMavfLqxa',
+                        makerAddress: '0x1234567890123456789012345678901234567890',
                         resolverFee: '1000000',
                         deadline: Math.floor(Date.now() / 1000) + 7200
                     };

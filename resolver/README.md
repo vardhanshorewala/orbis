@@ -72,7 +72,28 @@ FUSION_API_KEY=your_api_key
 MIN_PROFIT_THRESHOLD=1000000
 MAX_GAS_PRICE=50000000000
 TIMEOUT_SECONDS=300
+
+# Optional: Resolver Contract (for production use)
+# RESOLVER_ADDRESS=0x_deployed_resolver_address
+# LOP_ADDRESS=0x_limit_order_protocol_address
 ```
+
+## Resolver Contract (Optional but Recommended for Production)
+
+The 1inch Resolver contract provides a secure way to execute cross-chain swaps by:
+
+- Automatically adjusting timelocks based on block timestamps
+- Ensuring atomic operations for complex flows
+- Managing permissions and access control
+
+### Deploying the Resolver Contract
+
+1. Clone the 1inch cross-chain-swap repository
+2. Deploy the Resolver contract with your wallet as the owner
+3. Set `RESOLVER_ADDRESS` in your `.env` file
+4. Ensure the wallet configured in `EVM_MNEMONIC` or `EVM_PRIVATE_KEY` is the owner
+
+**Important**: The `deployDst` and `deploySrc` functions have an `onlyOwner` modifier, so only the contract owner can call them.
 
 ## Usage
 

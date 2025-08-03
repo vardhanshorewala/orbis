@@ -280,7 +280,7 @@ export interface CrossChainSwapConfig {
 }
 
 export class EvmAdapter {
-    private factoryInterface = new Interface(ESCROW_FACTORY_ABI);
+    public factoryInterface = new Interface(ESCROW_FACTORY_ABI);
     private srcEscrowInterface = new Interface(ESCROW_SRC_ABI);
     private dstEscrowInterface = new Interface(ESCROW_DST_ABI);
 
@@ -429,8 +429,8 @@ export class EvmAdapter {
     }
 
     /**
-     * Withdraw from destination escrow
-     */
+ * Withdraw from destination escrow  
+ */
     async withdrawFromDestinationEscrow(
         wallet: Wallet,
         escrowAddress: string,
@@ -440,6 +440,7 @@ export class EvmAdapter {
         transactionHash: string;
         blockTimestamp: number;
     }> {
+        // For destination escrows, the maker withdraws directly
         const tx: TransactionRequest = {
             to: escrowAddress,
             data: this.dstEscrowInterface.encodeFunctionData("withdraw", [
