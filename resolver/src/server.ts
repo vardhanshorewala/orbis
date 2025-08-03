@@ -15,10 +15,36 @@ import {
     RelayerConfig,
     RelayerError
 } from './typeston';
+import { randomBytes } from 'crypto';
+import { parseEther } from 'ethers';
 
 // Server configuration interface
 export interface ServerConfig {
     port: number;
+}
+
+function addressToUint256(address: string): bigint {
+    return BigInt(address);
+}
+
+// Helper to create a demo order
+function createDemoOrder(maker: string, taker: string) {
+    const secret = '0x' + randomBytes(32).toString('hex');
+    const secretHash = keccak256(secret);
+    const orderId = `same_chain_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const orderHash = keccak256(Buffer.from(orderId));
+
+    return {
+        orderId,
+        orderHash,
+        secret,
+        secretHash,
+        maker,
+        taker,
+        amount: parseEther('0.00001'), // 0.0001 ETH
+        safetyDeposit: parseEther('0.00001'), // 0.00001 ETH safety deposit
+        timelock: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
+    };
 }
 
 // Request interface
@@ -295,80 +321,100 @@ export class OrbisRelayerServer {
                     // Don't expose actual secret
                 }
             };
-            
-            // Create and lock EVM destination escrow
-            if (this.evmAdapter && this.evmWallet) {
-                console.log('🚀 Creating EVM destination escrow...');
-                
-                // Convert address to uint256
-                const addressToUint256 = (address: string): bigint => {
-                    // Handle TON address format (0:hex or EQxxx...)
-                    if (address.includes(':')) {
-                        // TON raw address format "0:hex"
-                        const hexPart = address.split(':')[1];
-                        return BigInt('0x' + hexPart);
-                    } else if (address.startsWith('EQ') || address.startsWith('UQ')) {
-                        // TON user-friendly address - convert to raw first
-                        // For now, use a placeholder - this would need proper TON address parsing
-                        return BigInt('0x' + address.slice(2).padStart(64, '0'));
-                    } else if (address.startsWith('0x')) {
-                        // EVM address
-                        return BigInt(address);
-                    } else {
-                        // Try to parse as hex
-                        return BigInt('0x' + address);
-                    }
-                };
-                
-                // Create ABI coder for parameters
-                const abiCoder = new AbiCoder();
-                const parameters = abiCoder.encode(
-                    ['uint256', 'uint256', 'uint256', 'uint256'],
-                    [0n, 0n, 0n, 0n] // Zero fees for now
-                );
-                
-                // Format secret properly for EVM (32 bytes with 0x prefix)
-                let evmSecret: string;
-                if (secretData.secret) {
-                    // Use existing secret from relayer, ensure proper padding
-                    let secretHex = secretData.secret.startsWith('0x') ? secretData.secret.slice(2) : secretData.secret;
-                    // Pad to 64 hex characters (32 bytes)
-                    secretHex = secretHex.padStart(64, '0');
-                    evmSecret = '0x' + secretHex;
-                } else {
-                    // Generate new secret in proper format (this shouldn't happen normally)
-                    evmSecret = '0x' + require('crypto').randomBytes(32).toString('hex');
-                }
-                
-                // Create destination escrow immutables
-                const dstImmutables: EscrowImmutables = {
-                    orderHash: keccak256(Buffer.from(orderId)),
-                    hashlock: keccak256(evmSecret), // Use the formatted secret
-                    maker: addressToUint256(order.maker),
-                    taker: addressToUint256(this.evmWallet.address), // EVM wallet as taker
-                    token: 0n, // Native ETH
-                    amount: order.takerAsset.amount,
-                    safetyDeposit: order.takerSafetyDeposit || BigInt('10000000000000000'), // 0.01 ETH default
-                    timelocks: BigInt(Math.floor(Date.now() / 1000) + order.timelockDuration),
-                    parameters: parameters,
-                };
-                
-                // Deploy destination escrow
-                const dstResult = await this.evmAdapter.createDestinationEscrow(
-                    this.evmWallet,
-                    dstImmutables,
-                    BigInt(Math.floor(Date.now() / 1000) + order.timelockDuration + 1800) // Source cancellation timestamp
-                );
-                
-                console.log(`✅ EVM destination escrow deployed at: ${dstResult.escrowAddress}`);
-                
-                // Update response to include destination escrow
-                response.contracts.destinationEscrow = dstResult.escrowAddress;
+            const config = loadConfig();
+
+            // Set up providers and wallets
+            const provider = new JsonRpcProvider(config.evm.rpcUrl);
+            const chainId = await provider.getNetwork().then(n => Number(n.chainId));
+
+            // Create wallets for maker and taker (using same wallet for demo)
+            let wallet: Wallet;
+            if (config.evm.mnemonic) {
+                const hdWallet = Wallet.fromPhrase(config.evm.mnemonic);
+                wallet = new Wallet(hdWallet.privateKey, provider);
             } else {
-                console.log('No EVM adapter or wallet found');
+                wallet = new Wallet(config.evm.privateKey || '', provider);
             }
 
-            res.status(201).json(response);
+            const makerAddress = wallet.address;
+            const takerAddress = wallet.address; // Same for demo
+
+
+
+            // Check balance
+            const balance = await provider.getBalance(makerAddress);
+
+            // if (balance < parseEther('0.05')) {
+            //     throw new Error('Insufficient balance. Need at least 0.05 ETH for demo');
+            // }
+
+            // Create adapter
+            const swapConfig: CrossChainSwapConfig = {
+                escrowFactoryAddress: config.evm.escrowFactory || '0x0000000000000000000000000000000000000000',
+                sourceChainId: chainId,
+                destinationChainId: chainId, // Same chain for demo
+            };
+
+            const adapter = new EvmAdapter(provider, swapConfig);
+
+            // Create demo order
+            const order2 = createDemoOrder(makerAddress, takerAddress);
+
+            // // ----------------------------------------------------------------------------
+            // // SCENARIO 1: Source Escrow (Maker locks funds, Taker withdraws with secret)
+            // // ----------------------------------------------------------------------------
+            // Logger.info(chalk.yellow('\n=== SCENARIO 1: Source Escrow Flow ===\n'));
+
+            // // Step 1: Calculate source escrow address
+            // // For the demo, we'll use zero fees
+            const protocolFeeAmount = 0n;
+            const integratorFeeAmount = 0n;
+            const protocolFeeRecipient = addressToUint256('0x0000000000000000000000000000000000000000');
+            const integratorFeeRecipient = addressToUint256('0x0000000000000000000000000000000000000000');
+
+            // // Encode the parameters field as the contract expects
+            const abiCoder = new AbiCoder();
+            const parameters = abiCoder.encode(
+                ['uint256', 'uint256', 'uint256', 'uint256'],
+                [protocolFeeAmount, integratorFeeAmount, protocolFeeRecipient, integratorFeeRecipient]
+            );
+
+            const srcImmutables: EscrowImmutables = {
+                orderHash: order2.orderHash,
+                hashlock: order2.secretHash,
+                maker: addressToUint256(makerAddress),
+                taker: addressToUint256(takerAddress),
+                token: 0n, // Native ETH
+                amount: order2.amount,
+                safetyDeposit: order2.safetyDeposit,
+                timelocks: BigInt(order2.timelock),
+                parameters: parameters,
+            };
+
+            const srcEscrowAddress = await adapter.getSourceEscrowAddress(srcImmutables);
+            console.log('srcEscrowAddress', srcEscrowAddress);
+
+            // Step 2: Maker sends funds to source escrow
+            const srcFundTx = await wallet.sendTransaction({
+                to: srcEscrowAddress,
+                value: order2.amount + order2.safetyDeposit,
+            });
+            await srcFundTx.wait();
+            console.log('srcFundTx', srcFundTx);
+
+            // Check escrow balance
+            const escrowBalance = await provider.getBalance(srcEscrowAddress);
+            console.log('escrowBalance', escrowBalance);
+
+            // Step 3: Taker withdraws using secret
+            const withdrawResult = await adapter.withdrawFromSourceEscrow(
+                wallet,
+                srcEscrowAddress,
+                order2.secret,
+                srcImmutables
+            );
+            console.log('withdrawResult', withdrawResult);
+            
 
         } catch (error) {
             console.error('Error processing order:', error);

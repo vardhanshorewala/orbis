@@ -56,7 +56,7 @@ export async function main() {
         }
 
         const makerAddress = await makerWallet.getAddress();
-        const takerAddress = await takerWallet.getAddress();
+        const takerAddress = await makerWallet.getAddress();
 
         Logger.info(`👤 Maker wallet: ${makerAddress}`);
         Logger.info(`👤 Taker wallet: ${takerAddress}`);

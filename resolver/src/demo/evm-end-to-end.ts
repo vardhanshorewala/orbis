@@ -3,7 +3,6 @@ import { randomBytes } from 'crypto';
 import { Wallet, JsonRpcProvider, parseEther, formatEther, keccak256, getAddress, toBeHex, zeroPadValue, HDNodeWallet, AbiCoder } from 'ethers';
 import { EvmAdapter, EscrowImmutables, CrossChainSwapConfig } from '../adapters/EvmAdapter';
 import { ResolverAdapter, ResolverConfig } from '../adapters/ResolverAdapter';
-import { Logger } from '../utils';
 import { loadConfig } from '../config';
 import chalk from 'chalk';
 
@@ -38,7 +37,6 @@ function createDemoOrder(maker: string, taker: string) {
 
 export async function main() {
     try {
-        Logger.info('🚀 Starting EVM escrow end-to-end demo');
 
         const config = loadConfig();
 
@@ -58,12 +56,10 @@ export async function main() {
         const makerAddress = wallet.address;
         const takerAddress = wallet.address; // Same for demo
 
-        Logger.info(`📍 Wallet address: ${makerAddress}`);
-        Logger.info(`⛓️  Chain ID: ${chainId}`);
+
 
         // Check balance
         const balance = await provider.getBalance(makerAddress);
-        Logger.info(`💰 Wallet balance: ${formatEther(balance)} ETH`);
 
         // if (balance < parseEther('0.05')) {
         //     throw new Error('Insufficient balance. Need at least 0.05 ETH for demo');
@@ -80,12 +76,6 @@ export async function main() {
 
         // Create demo order
         const order = createDemoOrder(makerAddress, takerAddress);
-
-        Logger.info(chalk.blue('\n📋 Created demo order:'));
-        Logger.info(`   Order ID: ${order.orderId}`);
-        Logger.info(`   Order Hash: ${order.orderHash}`);
-        Logger.info(`   Secret Hash: ${order.secretHash}`);
-        Logger.info(`   Amount: ${formatEther(order.amount)} ETH`);
 
         // // ----------------------------------------------------------------------------
         // // SCENARIO 1: Source Escrow (Maker locks funds, Taker withdraws with secret)
