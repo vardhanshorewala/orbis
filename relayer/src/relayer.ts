@@ -1,4 +1,6 @@
-import { Cell } from '@ton/core';
+import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
+import { Cell, beginCell } from '@ton/core';
 import { TonAdapter, TonAdapterConfig } from './adapters/TonAdapter';
 import { 
     FusionOrder, 
@@ -8,235 +10,452 @@ import {
     Network, 
     SecretData,
     RelayerConfig,
-    RelayerEvent,
     RelayerError
 } from './types';
 
-export class OrbisRelayer {
+// Server configuration interface
+export interface ServerConfig {
+    port: number;
+    forwardEndpoint?: string; // Optional endpoint to forward orders to
+}
+
+// Request interface
+export interface CreateOrderRequest {
+    maker: string;
+    taker?: string;
+    makerAsset: {
+        type: AssetType;
+        address: string;
+        amount: string; // String to handle large numbers from frontend
+        network: Network;
+    };
+    takerAsset: {
+        type: AssetType;
+        address: string;
+        amount: string;
+        network: Network;
+    };
+    sourceChain: Network;
+    destinationChain: Network;
+    refundAddress: string;
+    targetAddress: string;
+    timelockDuration?: number;
+    finalityTimelock?: number;
+    exclusivePeriod?: number;
+    makerSafetyDeposit?: string;
+    takerSafetyDeposit?: string;
+}
+
+// New interfaces for secret handling
+export interface SafeToSendSecretRequest {
+    orderId: string;
+    phase: OrderPhase;
+}
+
+export interface AcceptSecretRequest {
+    orderId: string;
+    secret: string;
+    fromAddress?: string;
+}
+
+export class OrbisRelayerServer {
+    private app: express.Application;
     private tonAdapter?: TonAdapter;
     private orders: Map<string, FusionOrder> = new Map();
     private secrets: Map<string, SecretData> = new Map();
-    private eventListeners: ((event: RelayerEvent) => void)[] = [];
+    private server?: any;
 
-    constructor(private config: RelayerConfig) {}
+    constructor(
+        private relayerConfig: RelayerConfig,
+        private serverConfig: ServerConfig
+    ) {
+        this.app = express();
+        this.setupMiddleware();
+        this.setupRoutes();
+    }
+
+    private setupMiddleware(): void {
+        // CORS configuration
+        this.app.use(cors({
+            origin: ['http://localhost:3000'],
+            credentials: true
+        }));
+
+        // JSON parsing
+        this.app.use(express.json({ limit: '10mb' }));
+
+        // Request logging
+        this.app.use((req: Request, res: Response, next: NextFunction) => {
+            console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+            next();
+        });
+    }
+
+    private setupRoutes(): void {
+        // Health check
+        this.app.get('/health', (req: Request, res: Response) => {
+            res.json({ 
+                status: 'healthy', 
+                timestamp: new Date().toISOString(),
+                orders: this.orders.size
+            });
+        });
+
+        // Main route - Process order and optionally forward
+        this.app.post('/process-order', this.processOrder.bind(this));
+
+        // Signal that it's safe to send secrets
+        this.app.post('/signal-safe-to-send-secret', this.signalSafeToSendSecret.bind(this));
+
+        // Accept secret and forward to another endpoint
+        this.app.post('/accept-secret', this.acceptSecret.bind(this));
+
+        // Error handling
+        this.app.use((error: any, req: Request, res: Response, next: NextFunction) => {
+            console.error('Server error:', error);
+            res.status(500).json({
+                success: false,
+                error: error.message || 'Internal server error'
+            });
+        });
+    }
 
     async initialize(): Promise<void> {
         try {
             // Initialize TON adapter
             const tonConfig: TonAdapterConfig = {
-                network: this.config.tonNetwork,
-                endpoint: this.config.tonEndpoint,
-                apiKey: this.config.tonApiKey,
-                mnemonic: this.config.tonMnemonic,
-                sourceEscrowCode: Cell.fromBase64(this.config.tonSourceEscrowCode),
-                destinationEscrowCode: Cell.fromBase64(this.config.tonDestinationEscrowCode)
+                network: this.relayerConfig.tonNetwork,
+                endpoint: this.relayerConfig.tonEndpoint,
+                apiKey: this.relayerConfig.tonApiKey,
+                mnemonic: this.relayerConfig.tonMnemonic,
+                sourceEscrowCode: Cell.fromBase64(this.relayerConfig.tonSourceEscrowCode),
+                destinationEscrowCode: Cell.fromBase64(this.relayerConfig.tonDestinationEscrowCode)
             };
 
             this.tonAdapter = new TonAdapter(tonConfig);
             await this.tonAdapter.initialize();
 
-            console.log('Orbis Relayer initialized successfully');
+            console.log('Orbis Relayer Server initialized successfully');
             
         } catch (error) {
-            throw new RelayerError(`Failed to initialize relayer: ${error}`, 'INIT_ERROR');
+            throw new RelayerError(`Failed to initialize relayer server: ${error}`, 'INIT_ERROR');
         }
     }
 
-    // === ORDER MANAGEMENT ===
+    async start(): Promise<void> {
+        await this.initialize();
+        
+        this.server = this.app.listen(this.serverConfig.port, () => {
+            console.log(`🚀 Orbis Relayer Server running on port ${this.serverConfig.port}`);
+            console.log(`📡 Health check: http://localhost:${this.serverConfig.port}/health`);
+            console.log(`📋 Process order: POST http://localhost:${this.serverConfig.port}/process-order`);
+            console.log(`🔐 Signal safe to send secret: POST http://localhost:${this.serverConfig.port}/signal-safe-to-send-secret`);
+            console.log(`🤝 Accept secret: POST http://localhost:${this.serverConfig.port}/accept-secret`);
+        });
+    }
 
-    createOrder(orderParams: Partial<FusionOrder>): FusionOrder {
-        const orderId = this.generateOrderId();
-        const now = Date.now();
+    async stop(): Promise<void> {
+        if (this.server) {
+            this.server.close();
+            console.log('Orbis Relayer Server stopped');
+        }
+    }
 
-        const order: FusionOrder = {
-            orderId,
-            nonce: BigInt(now),
-            maker: orderParams.maker || '',
-            taker: orderParams.taker,
-            resolver: this.tonAdapter?.formatAddress('') || '', // Will be set after adapter init
-            makerAsset: orderParams.makerAsset || {
-                type: AssetType.NATIVE_TON,
-                address: 'TON',
-                amount: BigInt(0),
-                network: Network.TON_TESTNET
-            },
-            takerAsset: orderParams.takerAsset || {
-                type: AssetType.NATIVE_ETH,
-                address: 'ETH',
-                amount: BigInt(0),
-                network: Network.ETHEREUM_SEPOLIA
-            },
-            sourceChain: orderParams.sourceChain || Network.TON_TESTNET,
-            destinationChain: orderParams.destinationChain || Network.ETHEREUM_SEPOLIA,
-            refundAddress: orderParams.refundAddress || orderParams.maker || '',
-            targetAddress: orderParams.targetAddress || '',
-            secretHash: '',
-            timelockDuration: orderParams.timelockDuration || this.config.defaultTimelockDuration,
-            finalityTimelock: orderParams.finalityTimelock || this.config.defaultFinalityTimelock,
-            exclusivePeriod: orderParams.exclusivePeriod || this.config.defaultExclusivePeriod,
-            makerSafetyDeposit: orderParams.makerSafetyDeposit || this.config.minSafetyDeposit,
-            takerSafetyDeposit: orderParams.takerSafetyDeposit,
-            status: OrderStatus.CREATED,
-            phase: OrderPhase.ANNOUNCEMENT,
-            createdAt: now,
-            updatedAt: now
-        };
+    // === MAIN ROUTE HANDLER ===
 
-        // Generate secret and hash
-        const secretData = this.tonAdapter?.generateSecret();
-        if (secretData) {
+    private async processOrder(req: Request, res: Response): Promise<void> {
+        try {
+            const orderRequest: CreateOrderRequest = req.body;
+            
+            // Validate required fields
+            if (!orderRequest.maker || !orderRequest.makerAsset || !orderRequest.takerAsset) {
+                res.status(400).json({
+                    success: false,
+                    error: 'Missing required fields: maker, makerAsset, takerAsset'
+                });
+                return;
+            }
+
+            if (!this.tonAdapter) {
+                res.status(500).json({
+                    success: false,
+                    error: 'TON adapter not initialized'
+                });
+                return;
+            }
+
+            const orderId = this.generateOrderId();
+            const now = Date.now();
+
+            // Convert string amounts to BigInt
+            const order: FusionOrder = {
+                orderId,
+                nonce: BigInt(now),
+                maker: orderRequest.maker,
+                taker: orderRequest.taker,
+                resolver: this.tonAdapter.getWalletAddress(),
+                makerAsset: {
+                    ...orderRequest.makerAsset,
+                    amount: BigInt(orderRequest.makerAsset.amount)
+                },
+                takerAsset: {
+                    ...orderRequest.takerAsset,
+                    amount: BigInt(orderRequest.takerAsset.amount)
+                },
+                sourceChain: orderRequest.sourceChain,
+                destinationChain: orderRequest.destinationChain,
+                refundAddress: orderRequest.refundAddress,
+                targetAddress: orderRequest.targetAddress,
+                secretHash: '',
+                timelockDuration: orderRequest.timelockDuration || this.relayerConfig.defaultTimelockDuration,
+                finalityTimelock: orderRequest.finalityTimelock || this.relayerConfig.defaultFinalityTimelock,
+                exclusivePeriod: orderRequest.exclusivePeriod || this.relayerConfig.defaultExclusivePeriod,
+                makerSafetyDeposit: orderRequest.makerSafetyDeposit ? BigInt(orderRequest.makerSafetyDeposit) : this.relayerConfig.minSafetyDeposit,
+                takerSafetyDeposit: orderRequest.takerSafetyDeposit ? BigInt(orderRequest.takerSafetyDeposit) : undefined,
+                status: OrderStatus.CREATED,
+                phase: OrderPhase.ANNOUNCEMENT,
+                createdAt: now,
+                updatedAt: now
+            };
+
+            // Generate secret and hash
+            const secretData = this.tonAdapter.generateSecret();
             order.secretHash = secretData.hash;
             this.secrets.set(orderId, secretData);
-        }
 
-        this.orders.set(orderId, order);
-        this.emitEvent({
-            type: 'order_created',
-            orderId,
-            timestamp: now,
-            data: order
-        });
-
-        return order;
-    }
-
-    getOrder(orderId: string): FusionOrder | undefined {
-        return this.orders.get(orderId);
-    }
-
-    updateOrderStatus(orderId: string, status: OrderStatus, phase?: OrderPhase): void {
-        const order = this.orders.get(orderId);
-        if (!order) {
-            throw new RelayerError(`Order not found: ${orderId}`, 'ORDER_NOT_FOUND', orderId);
-        }
-
-        order.status = status;
-        if (phase) order.phase = phase;
-        order.updatedAt = Date.now();
-
-        this.orders.set(orderId, order);
-        this.emitEvent({
-            type: 'order_signed',
-            orderId,
-            timestamp: order.updatedAt,
-            data: { status, phase }
-        });
-    }
-
-    // === CROSS-CHAIN OPERATIONS ===
-
-    async processOrder(orderId: string): Promise<void> {
-        const order = this.getOrder(orderId);
-        if (!order) {
-            throw new RelayerError(`Order not found: ${orderId}`, 'ORDER_NOT_FOUND', orderId);
-        }
-
-        if (!this.tonAdapter) {
-            throw new RelayerError('TON adapter not initialized', 'ADAPTER_NOT_READY', orderId);
-        }
-
-        try {
             // Validate order
             this.tonAdapter.validateOrder(order);
 
-            // Phase 1: Announcement - Deploy contracts
-            if (order.phase === OrderPhase.ANNOUNCEMENT) {
-                await this.deployEscrowContracts(order);
-                this.updateOrderStatus(orderId, OrderStatus.DEPOSITED_SOURCE, OrderPhase.DEPOSITING);
-            }
+            // Deploy escrow contracts
+            const sourceAddress = await this.tonAdapter.deploySourceEscrow(order, secretData.hash);
+            const destAddress = await this.tonAdapter.deployDestinationEscrow(order, secretData.hash);
 
-            console.log(`Order ${orderId} processed successfully`);
+            // Store order
+            order.status = OrderStatus.DEPOSITED_SOURCE;
+            order.phase = OrderPhase.DEPOSITING;
+            order.updatedAt = Date.now();
+            this.orders.set(orderId, order);
 
-        } catch (error) {
-            this.updateOrderStatus(orderId, OrderStatus.FAILED);
-            this.emitEvent({
-                type: 'error',
+            // Prepare response
+            const response = {
+                success: true,
                 orderId,
-                timestamp: Date.now(),
-                data: { error: error instanceof Error ? error.message : String(error) }
+                order: this.serializeOrder(order),
+                contracts: {
+                    sourceEscrow: sourceAddress.toString(),
+                    destinationEscrow: destAddress.toString()
+                },
+                secret: {
+                    hash: secretData.hash
+                    // Don't expose actual secret
+                }
+            };
+
+            res.status(201).json(response);
+
+        } catch (error) {
+            console.error('Error processing order:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to process order'
             });
-            throw error;
         }
     }
 
-    private async deployEscrowContracts(order: FusionOrder): Promise<void> {
-        if (!this.tonAdapter) throw new Error('TON adapter not initialized');
+    // === NEW SECRET HANDLING ENDPOINTS ===
 
-        const secret = this.secrets.get(order.orderId);
-        if (!secret) {
-            throw new RelayerError(`Secret not found for order: ${order.orderId}`, 'SECRET_NOT_FOUND', order.orderId);
-        }
-
+    private async signalSafeToSendSecret(req: Request, res: Response): Promise<void> {
         try {
-            // Deploy source escrow (where maker deposits)
-            if (order.sourceChain === Network.TON_TESTNET || order.sourceChain === Network.TON_MAINNET) {
-                const sourceAddress = await this.tonAdapter.deploySourceEscrow(order, secret.hash);
-                console.log(`Source escrow deployed: ${sourceAddress.toString()}`);
+            const { orderId, phase }: SafeToSendSecretRequest = req.body;
+
+            // Validate required fields
+            if (!orderId || !phase) {
+                res.status(400).json({
+                    success: false,
+                    error: 'Missing required fields: orderId, phase'
+                });
+                return;
             }
 
-            // Deploy destination escrow (where taker receives)
-            if (order.destinationChain === Network.TON_TESTNET || order.destinationChain === Network.TON_MAINNET) {
-                const destAddress = await this.tonAdapter.deployDestinationEscrow(order, secret.hash);
-                console.log(`Destination escrow deployed: ${destAddress.toString()}`);
+            // Check if order exists
+            const order = this.orders.get(orderId);
+            if (!order) {
+                res.status(404).json({
+                    success: false,
+                    error: 'Order not found'
+                });
+                return;
             }
 
-            this.emitEvent({
-                type: 'deposit_detected',
-                orderId: order.orderId,
-                timestamp: Date.now(),
-                data: { phase: 'contracts_deployed' }
+            // Update order phase to indicate it's safe to send secrets
+            order.phase = phase;
+            order.updatedAt = Date.now();
+            this.orders.set(orderId, order);
+
+            console.log(`Order ${orderId} marked as safe to send secrets in phase: ${phase}`);
+
+            // Forward signal to configured endpoint if available
+            if (this.serverConfig.forwardEndpoint) {
+                try {
+                    const forwardResponse = await fetch(`${this.serverConfig.forwardEndpoint}/signal-safe-to-send-secret`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            orderId,
+                            phase,
+                            timestamp: new Date().toISOString()
+                        })
+                    });
+
+                    if (!forwardResponse.ok) {
+                        console.warn(`Failed to forward signal to ${this.serverConfig.forwardEndpoint}: ${forwardResponse.statusText}`);
+                    }
+                } catch (forwardError) {
+                    console.warn(`Error forwarding signal to ${this.serverConfig.forwardEndpoint}:`, forwardError);
+                }
+            }
+
+            res.json({
+                success: true,
+                orderId,
+                phase,
+                message: 'Signal sent successfully',
+                timestamp: new Date().toISOString()
             });
 
         } catch (error) {
-            throw new RelayerError(`Failed to deploy escrow contracts: ${error}`, 'DEPLOYMENT_FAILED', order.orderId);
+            console.error('Error signaling safe to send secret:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to signal safe to send secret'
+            });
         }
     }
 
-    // === SECRET MANAGEMENT ===
+    private async acceptSecret(req: Request, res: Response): Promise<void> {
+        try {
+            const { orderId, secret, fromAddress }: AcceptSecretRequest = req.body;
 
-    revealSecret(orderId: string): string | undefined {
-        const secret = this.secrets.get(orderId);
-        if (!secret) return undefined;
-
-        secret.revealed = true;
-        secret.revealedAt = Date.now();
-        this.secrets.set(orderId, secret);
-
-        this.emitEvent({
-            type: 'secret_shared',
-            orderId,
-            timestamp: secret.revealedAt,
-            data: { secret: secret.secret }
-        });
-
-        return secret.secret;
-    }
-
-    getSecret(orderId: string): SecretData | undefined {
-        return this.secrets.get(orderId);
-    }
-
-    // === EVENT SYSTEM ===
-
-    addEventListener(listener: (event: RelayerEvent) => void): void {
-        this.eventListeners.push(listener);
-    }
-
-    removeEventListener(listener: (event: RelayerEvent) => void): void {
-        const index = this.eventListeners.indexOf(listener);
-        if (index > -1) {
-            this.eventListeners.splice(index, 1);
-        }
-    }
-
-    private emitEvent(event: RelayerEvent): void {
-        this.eventListeners.forEach(listener => {
-            try {
-                listener(event);
-            } catch (error) {
-                console.error('Error in event listener:', error);
+            // Validate required fields
+            if (!orderId || !secret) {
+                res.status(400).json({
+                    success: false,
+                    error: 'Missing required fields: orderId, secret'
+                });
+                return;
             }
-        });
+
+            // Check if order exists
+            const order = this.orders.get(orderId);
+            if (!order) {
+                res.status(404).json({
+                    success: false,
+                    error: 'Order not found'
+                });
+                return;
+            }
+
+            // Verify secret matches the stored hash
+            const storedSecretData = this.secrets.get(orderId);
+            if (!storedSecretData) {
+                res.status(404).json({
+                    success: false,
+                    error: 'Secret data not found for order'
+                });
+                return;
+            }
+
+            // Validate the secret (this would depend on your hashing implementation)
+            if (!this.tonAdapter) {
+                res.status(500).json({
+                    success: false,
+                    error: 'TON adapter not initialized'
+                });
+                return;
+            }
+
+            // Verify the secret matches the hash using the same logic as generateSecret
+            const secretCell = beginCell()
+                .storeUint(parseInt(secret.replace('0x', ''), 16), 32)
+                .endCell();
+            
+            // Get cell hash and take first 32 bits (like contract does)
+            const cellHashBuffer = secretCell.hash();
+            const cellHashBigInt = BigInt('0x' + cellHashBuffer.toString('hex'));
+            const hash32bit = Number(cellHashBigInt >> 224n); // Take first 32 bits
+            const computedHash = hash32bit.toString(16).padStart(8, '0');
+            
+            const isValidSecret = computedHash === order.secretHash;
+            if (!isValidSecret) {
+                res.status(400).json({
+                    success: false,
+                    error: 'Invalid secret provided'
+                });
+                return;
+            }
+
+            // Update order status to indicate secret has been received
+            order.phase = OrderPhase.WITHDRAWAL;
+            order.status = OrderStatus.SECRETS_SHARED;
+            order.updatedAt = Date.now();
+            this.orders.set(orderId, order);
+
+            console.log(`Secret accepted for order ${orderId} from ${fromAddress || 'unknown'}`);
+
+            // Forward secret to configured endpoint if available
+            let forwardResult = null;
+            if (this.serverConfig.forwardEndpoint) {
+                try {
+                    const forwardResponse = await fetch(`${this.serverConfig.forwardEndpoint}/accept-secret`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            orderId,
+                            secret,
+                            fromAddress,
+                            timestamp: new Date().toISOString(),
+                            orderPhase: order.phase,
+                            orderStatus: order.status
+                        })
+                    });
+
+                    if (forwardResponse.ok) {
+                        forwardResult = await forwardResponse.json();
+                        console.log(`Successfully forwarded secret for order ${orderId}`);
+                    } else {
+                        console.warn(`Failed to forward secret to ${this.serverConfig.forwardEndpoint}: ${forwardResponse.statusText}`);
+                        forwardResult = { error: `Forward failed: ${forwardResponse.statusText}` };
+                    }
+                } catch (forwardError) {
+                    console.warn(`Error forwarding secret to ${this.serverConfig.forwardEndpoint}:`, forwardError);
+                    forwardResult = { error: `Forward error: ${forwardError}` };
+                }
+            }
+
+            res.json({
+                success: true,
+                orderId,
+                message: 'Secret accepted successfully',
+                order: {
+                    phase: order.phase,
+                    status: order.status,
+                    updatedAt: order.updatedAt
+                },
+                forwardResult,
+                timestamp: new Date().toISOString()
+            });
+
+        } catch (error) {
+            console.error('Error accepting secret:', error);
+            res.status(500).json({
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to accept secret'
+            });
+        }
     }
 
     // === UTILITY METHODS ===
@@ -245,19 +464,21 @@ export class OrbisRelayer {
         return `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
 
-    getAllOrders(): FusionOrder[] {
-        return Array.from(this.orders.values());
+    // Serialize order for JSON response (convert BigInt to string)
+    private serializeOrder(order: FusionOrder): any {
+        return {
+            ...order,
+            nonce: order.nonce.toString(),
+            makerAsset: {
+                ...order.makerAsset,
+                amount: order.makerAsset.amount.toString()
+            },
+            takerAsset: {
+                ...order.takerAsset,
+                amount: order.takerAsset.amount.toString()
+            },
+            makerSafetyDeposit: order.makerSafetyDeposit.toString(),
+            takerSafetyDeposit: order.takerSafetyDeposit?.toString()
+        };
     }
-
-    getOrdersByStatus(status: OrderStatus): FusionOrder[] {
-        return Array.from(this.orders.values()).filter(order => order.status === status);
-    }
-
-    async cleanup(): Promise<void> {
-        // Clean up resources, close connections, etc.
-        this.orders.clear();
-        this.secrets.clear();
-        this.eventListeners.length = 0;
-        console.log('Relayer cleanup completed');
-    }
-} 
+}
