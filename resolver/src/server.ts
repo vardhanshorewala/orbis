@@ -201,7 +201,7 @@ export class OrbisRelayerServer {
                 destinationChain: orderRequest.destinationChain,
                 refundAddress: orderRequest.refundAddress,
                 targetAddress: orderRequest.targetAddress,
-                secretHash: '', // Will be set below
+                secretHash: '',
                 timelockDuration: orderRequest.timelockDuration || this.relayerConfig.defaultTimelockDuration,
                 finalityTimelock: orderRequest.finalityTimelock || this.relayerConfig.defaultFinalityTimelock,
                 exclusivePeriod: orderRequest.exclusivePeriod || this.relayerConfig.defaultExclusivePeriod,
@@ -225,6 +225,7 @@ export class OrbisRelayerServer {
                 };
                 console.log(`Using frontend-provided secret hash: ${orderRequest.secretHash}`);
             } else {
+                console.log('Generating secret on relayer');
                 // Generate secret on relayer (legacy behavior)
                 secretData = this.tonAdapter.generateSecret();
                 order.secretHash = secretData.hash;
@@ -237,8 +238,8 @@ export class OrbisRelayerServer {
 
             // Deploy only source escrow contract for now
             console.log('🚀 Deploying source escrow contract...');
-            const destinationAddress = await this.tonAdapter.deployDestinationEscrow(order, secretData.hash);
-            console.log(`✅ Source escrow deployed at: ${destinationAddress.toString()}`);
+            const sourceAddress = await this.tonAdapter.deploySourceEscrow(order, secretData.hash);
+            console.log(`✅ Source escrow deployed at: ${sourceAddress.toString()}`);
 
             // Wait 15 seconds for deployment and finality timelock
             console.log('⏳ Waiting 15 seconds for contract deployment and finality timelock...');
@@ -246,7 +247,7 @@ export class OrbisRelayerServer {
 
             // Lock the source escrow
             console.log('🔐 Locking source escrow...');
-            await this.tonAdapter.lockDestinationEscrow(destinationAddress);
+            // await this.tonAdapter.lockSourceEscrow(sourceAddress);
             console.log('✅ Source escrow locked successfully!');
 
             // Store order
@@ -261,8 +262,8 @@ export class OrbisRelayerServer {
                 orderId,
                 order: this.serializeOrder(order),
                 contracts: {
-                    sourceEscrow: null,
-                    destinationEscrow: destinationAddress.toString()
+                    sourceEscrow: sourceAddress.toString(),
+                    destinationEscrow: null // Only source for now
                 },
                 secret: {
                     hash: secretData.hash
