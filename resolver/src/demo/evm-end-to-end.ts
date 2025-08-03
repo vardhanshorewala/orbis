@@ -106,87 +106,87 @@ export async function main() {
             [protocolFeeAmount, integratorFeeAmount, protocolFeeRecipient, integratorFeeRecipient]
         );
 
-        // const srcImmutables: EscrowImmutables = {
-        //     orderHash: order.orderHash,
-        //     hashlock: order.secretHash,
-        //     maker: addressToUint256(makerAddress),
-        //     taker: addressToUint256(takerAddress),
-        //     token: 0n, // Native ETH
-        //     amount: order.amount,
-        //     safetyDeposit: order.safetyDeposit,
-        //     timelocks: BigInt(order.timelock),
-        //     parameters: parameters,
-        // };
+        const srcImmutables: EscrowImmutables = {
+            orderHash: order.orderHash,
+            hashlock: order.secretHash,
+            maker: addressToUint256(makerAddress),
+            taker: addressToUint256(takerAddress),
+            token: 0n, // Native ETH
+            amount: order.amount,
+            safetyDeposit: order.safetyDeposit,
+            timelocks: BigInt(order.timelock),
+            parameters: parameters,
+        };
 
-        // Logger.info('📍 Getting source escrow address...');
-        // const srcEscrowAddress = await adapter.getSourceEscrowAddress(srcImmutables);
-        // Logger.info(`✅ Source escrow address: ${srcEscrowAddress}`);
+        Logger.info('📍 Getting source escrow address...');
+        const srcEscrowAddress = await adapter.getSourceEscrowAddress(srcImmutables);
+        Logger.info(`✅ Source escrow address: ${srcEscrowAddress}`);
 
-        // // Step 2: Maker sends funds to source escrow
-        // Logger.info('\n💸 Maker sending funds to source escrow...');
-        // const srcFundTx = await wallet.sendTransaction({
-        //     to: srcEscrowAddress,
-        //     value: order.amount + order.safetyDeposit,
-        // });
-        // await srcFundTx.wait();
-        // Logger.info(`✅ Funds sent! TX: ${srcFundTx.hash}`);
+        // Step 2: Maker sends funds to source escrow
+        Logger.info('\n💸 Maker sending funds to source escrow...');
+        const srcFundTx = await wallet.sendTransaction({
+            to: srcEscrowAddress,
+            value: order.amount + order.safetyDeposit,
+        });
+        await srcFundTx.wait();
+        Logger.info(`✅ Funds sent! TX: ${srcFundTx.hash}`);
 
-        // // Check escrow balance
-        // const escrowBalance = await provider.getBalance(srcEscrowAddress);
-        // Logger.info(`📊 Escrow balance: ${formatEther(escrowBalance)} ETH`);
+        // Check escrow balance
+        const escrowBalance = await provider.getBalance(srcEscrowAddress);
+        Logger.info(`📊 Escrow balance: ${formatEther(escrowBalance)} ETH`);
 
-        // // Step 3: Taker withdraws using secret
-        // Logger.info('\n🔓 Taker withdrawing from source escrow with secret...');
-        // const withdrawResult = await adapter.withdrawFromSourceEscrow(
-        //     wallet,
-        //     srcEscrowAddress,
-        //     order.secret,
-        //     srcImmutables
-        // );
-        // Logger.info(`✅ Withdrawn! TX: ${withdrawResult.transactionHash}`);
+        // Step 3: Taker withdraws using secret
+        Logger.info('\n🔓 Taker withdrawing from source escrow with secret...');
+        const withdrawResult = await adapter.withdrawFromSourceEscrow(
+            wallet,
+            srcEscrowAddress,
+            order.secret,
+            srcImmutables
+        );
+        Logger.info(`✅ Withdrawn! TX: ${withdrawResult.transactionHash}`);
 
 
-        // // ----------------------------------------------------------------------------
-        // // SCENARIO 3: Cancellation Flow
-        // // ----------------------------------------------------------------------------
-        // Logger.info(chalk.yellow('\n=== SCENARIO 3: Cancellation Flow (Demo) ===\n'));
+        // ----------------------------------------------------------------------------
+        // SCENARIO 3: Cancellation Flow
+        // ----------------------------------------------------------------------------
+        Logger.info(chalk.yellow('\n=== SCENARIO 3: Cancellation Flow (Demo) ===\n'));
 
-        // // Create a new order that we'll cancel
-        // const cancelOrder = createDemoOrder(makerAddress, takerAddress);
-        // const cancelImmutables: EscrowImmutables = {
-        //     orderHash: cancelOrder.orderHash,
-        //     hashlock: cancelOrder.secretHash,
-        //     maker: addressToUint256(makerAddress),
-        //     taker: addressToUint256(takerAddress),
-        //     token: 0n,
-        //     amount: parseEther('0.005'),
-        //     safetyDeposit: parseEther('0.0005'),
-        //     timelocks: BigInt(Math.floor(Date.now() / 1000) + 60), // 1 minute (short for demo)
-        // };
+        // Create a new order that we'll cancel
+        const cancelOrder = createDemoOrder(makerAddress, takerAddress);
+        const cancelImmutables: EscrowImmutables = {
+            orderHash: cancelOrder.orderHash,
+            hashlock: cancelOrder.secretHash,
+            maker: addressToUint256(makerAddress),
+            taker: addressToUint256(takerAddress),
+            token: 0n,
+            amount: parseEther('0.005'),
+            safetyDeposit: parseEther('0.0005'),
+            timelocks: BigInt(Math.floor(Date.now() / 1000) + 60), // 1 minute (short for demo)
+        };
 
-        // Logger.info('📍 Getting source escrow address for cancellation demo...');
-        // const cancelSrcAddress = await adapter.getSourceEscrowAddress(cancelImmutables);
-        // Logger.info(`✅ Source escrow address: ${cancelSrcAddress}`);
+        Logger.info('📍 Getting source escrow address for cancellation demo...');
+        const cancelSrcAddress = await adapter.getSourceEscrowAddress(cancelImmutables);
+        Logger.info(`✅ Source escrow address: ${cancelSrcAddress}`);
 
-        // // Fund it
-        // Logger.info('💸 Funding escrow...');
-        // const cancelFundTx = await wallet.sendTransaction({
-        //     to: cancelSrcAddress,
-        //     value: cancelImmutables.amount + cancelImmutables.safetyDeposit,
-        // });
-        // await cancelFundTx.wait();
-        // Logger.info(`✅ Funded! TX: ${cancelFundTx.hash}`);
+        // Fund it
+        Logger.info('💸 Funding escrow...');
+        const cancelFundTx = await wallet.sendTransaction({
+            to: cancelSrcAddress,
+            value: cancelImmutables.amount + cancelImmutables.safetyDeposit,
+        });
+        await cancelFundTx.wait();
+        Logger.info(`✅ Funded! TX: ${cancelFundTx.hash}`);
 
-        // Logger.info('\n⏳ Waiting for timelock to expire (65 seconds)...');
-        // await new Promise(resolve => setTimeout(resolve, 65000));
+        Logger.info('\n⏳ Waiting for timelock to expire (65 seconds)...');
+        await new Promise(resolve => setTimeout(resolve, 65000));
 
-        // Logger.info('🚫 Cancelling source escrow...');
-        // const cancelResult = await adapter.cancelSourceEscrow(
-        //     wallet,
-        //     cancelSrcAddress,
-        //     cancelImmutables
-        // );
-        // Logger.info(`✅ Cancelled! TX: ${cancelResult.transactionHash}`);
+        Logger.info('🚫 Cancelling source escrow...');
+        const cancelResult = await adapter.cancelSourceEscrow(
+            wallet,
+            cancelSrcAddress,
+            cancelImmutables
+        );
+        Logger.info(`✅ Cancelled! TX: ${cancelResult.transactionHash}`);
 
         // ----------------------------------------------------------------------------
         // SCENARIO 4: Using Resolver Contract

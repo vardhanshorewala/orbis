@@ -15,6 +15,26 @@ program
     .description('Simple resolver for 1inch Fusion+ TON cross-chain swaps')
     .version('1.0.0');
 
+// Server command
+program
+    .command('server')
+    .description('Start the resolver HTTP server')
+    .option('-p, --port <port>', 'Port to run the server on', '8080')
+    .action(async (options) => {
+        try {
+            console.log(chalk.blue('🚀 Starting Orbis Resolver Server'));
+
+            const { main: startServer } = await import('./index');
+            process.env.PORT = options.port;
+            await startServer();
+
+        } catch (error) {
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+            console.error(chalk.red('❌ Failed to start server:'), errorMessage);
+            process.exit(1);
+        }
+    });
+
 // Start command
 program
     .command('start')

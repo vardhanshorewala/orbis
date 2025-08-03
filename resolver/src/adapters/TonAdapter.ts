@@ -1,29 +1,32 @@
-import {
-    TonClient,
-    WalletContractV4,
-    internal,
-    Address,
-    beginCell,
-    Cell,
+import { 
+    Address, 
+    Cell, 
+    internal, 
     toNano,
     fromNano,
-    StateInit,
-    contractAddress,
-    ContractProvider,
+    beginCell,
     Contract,
+    ContractProvider,
+    Sender,
     SendMode,
-    Sender
-} from '@ton/ton';
-import { mnemonicToPrivateKey } from '@ton/crypto';
-import {
-    CrossChainSwapOrder,
-    EscrowDeployment,
-    EscrowStatus,
-    ResolverError
-} from '../types';
-import { Logger } from '../utils';
+    contractAddress
+} from '@ton/core';
+import { createHash } from 'crypto';
+import { TonClient, WalletContractV3R2, WalletContractV4 } from '@ton/ton';
+import { mnemonicToWalletKey } from '@ton/crypto';
+import { 
+    FusionOrder, 
+    AssetType, 
+    Network, 
+    EscrowDetails, 
+    SecretData,
+    ContractError,
+    NetworkError,
+    ValidationError
+} from '../typeston';
 
-interface TonSourceEscrowConfig {
+// Local interface definitions based on the wrapper contracts
+export interface TonSourceEscrowConfig {
     makerAddress: Address;
     resolverAddress: Address;
     targetAddress: Address;
@@ -37,7 +40,7 @@ interface TonSourceEscrowConfig {
     finalityTimelock: number;
 }
 
-interface TonDestinationEscrowConfig {
+export interface TonDestinationEscrowConfig {
     resolverAddress: Address;
     makerAddress: Address;
     refundAddress: Address;
@@ -51,642 +54,525 @@ interface TonDestinationEscrowConfig {
     exclusivePeriod: number;
 }
 
-// For actual implementation, these would come from the compiled TON contracts
-// You would need to compile the contracts and include them in the resolver
-const SourceOpcodes = {
+// Opcodes from the wrapper contracts
+const Opcodes = {
+    CREATE_ESCROW: 0x1,
+    WITHDRAW: 0x2,
+    REFUND: 0x3,
     LOCK_ESCROW: 0x5,
-    WITHDRAW: 0x2,
-    REFUND: 0x3
 };
 
-const DestOpcodes = {
-    WITHDRAW: 0x2,
-    REFUND: 0x3
-};
-
-// Stub classes for escrow contracts
-// In production, these would be imported from the compiled TON contracts
-class TonSourceEscrow {
-    constructor(readonly address: Address, readonly init?: { code: Cell; data: Cell }) { }
-
-    static createFromAddress(address: Address) {
-        return new TonSourceEscrow(address);
-    }
-
-    static createFromConfig(config: TonSourceEscrowConfig, code: Cell, workchain = 0) {
-        const data = tonSourceEscrowConfigToCell(config);
-        const init = { code, data };
-        return new TonSourceEscrow(contractAddress(workchain, init), init);
-    }
-
-    async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {
-        await provider.internal(via, {
-            value,
-            sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell().endCell(),
-        });
-    }
-
-    async sendLock(provider: ContractProvider, via: Sender, value: bigint) {
-        await provider.internal(via, {
-            value,
-            sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell()
-                .storeUint(SourceOpcodes.LOCK_ESCROW, 32)
-                .storeUint(0, 64)
-                .endCell()
-        });
-    }
-
-    async sendWithdraw(provider: ContractProvider, via: Sender, opts: { value: bigint; secret: string }) {
-        const secretInt = parseInt(opts.secret.replace('0x', ''), 16);
-        const secretCell = beginCell().storeUint(secretInt, 32).endCell();
-
-        await provider.internal(via, {
-            value: opts.value,
-            sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell()
-                .storeUint(SourceOpcodes.WITHDRAW, 32)
-                .storeUint(0, 64)
-                .storeRef(secretCell)
-                .endCell()
-        });
-    }
-
-    async sendRefund(provider: ContractProvider, via: Sender, value: bigint) {
-        await provider.internal(via, {
-            value,
-            sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell()
-                .storeUint(SourceOpcodes.REFUND, 32)
-                .storeUint(0, 64)
-                .endCell()
-        });
-    }
-
-    async getEscrowDetails() {
-        // Mock implementation
-        return {
-            status: 0,
-            makerAddress: this.address,
-            resolverAddress: this.address,
-            targetAddress: this.address,
-            refundAddress: this.address,
-            assetType: 0,
-            jettonMaster: this.address,
-            amount: 0n,
-            safetyDeposit: 0n,
-            timelockDuration: 0,
-            createdAt: 0
-        };
-    }
-
-    async canRefund() {
-        return true;
-    }
+export interface TonAdapterConfig {
+    network: Network;
+    endpoint: string;
+    apiKey?: string;
+    mnemonic: string;
+    sourceEscrowCode: Cell;
+    destinationEscrowCode: Cell;
+    walletVersion?: 'v3r2' | 'v4' | 'v5r1'; // Support different wallet versions
 }
 
-class TonDestinationEscrow {
-    constructor(readonly address: Address, readonly init?: { code: Cell; data: Cell }) { }
-
-    static createFromAddress(address: Address) {
-        return new TonDestinationEscrow(address);
-    }
-
-    static createFromConfig(config: TonDestinationEscrowConfig, code: Cell, workchain = 0) {
-        const data = tonDestinationEscrowConfigToCell(config);
-        const init = { code, data };
-        return new TonDestinationEscrow(contractAddress(workchain, init), init);
-    }
-
-    async sendDeploy(provider: ContractProvider, via: Sender, value: bigint) {
-        await provider.internal(via, {
-            value,
-            sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell().endCell(),
-        });
-    }
-
-    async sendWithdraw(provider: ContractProvider, via: Sender, opts: { value: bigint; secret: string }) {
-        const secretInt = parseInt(opts.secret.replace('0x', ''), 16);
-        const secretCell = beginCell().storeUint(secretInt, 32).endCell();
-
-        await provider.internal(via, {
-            value: opts.value,
-            sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell()
-                .storeUint(DestOpcodes.WITHDRAW, 32)
-                .storeUint(0, 64)
-                .storeRef(secretCell)
-                .endCell()
-        });
-    }
-
-    async sendRefund(provider: ContractProvider, via: Sender, value: bigint) {
-        await provider.internal(via, {
-            value,
-            sendMode: SendMode.PAY_GAS_SEPARATELY,
-            body: beginCell()
-                .storeUint(DestOpcodes.REFUND, 32)
-                .storeUint(0, 64)
-                .endCell()
-        });
-    }
-
-    async getEscrowDetails() {
-        // Mock implementation
-        return {
-            status: 0,
-            resolverAddress: this.address,
-            makerAddress: this.address,
-            refundAddress: this.address,
-            assetType: 0,
-            jettonMaster: this.address,
-            amount: 0n,
-            safetyDeposit: 0n,
-            timelockDuration: 0,
-            finalityTimelock: 0,
-            exclusivePeriod: 0,
-            createdAt: 0
-        };
-    }
-
-    async canRefund() {
-        return true;
-    }
-}
-
-// Helper functions to build config cells
-function tonSourceEscrowConfigToCell(config: TonSourceEscrowConfig): Cell {
-    const refCell = beginCell()
-        .storeAddress(config.targetAddress)
-        .storeAddress(config.refundAddress)
-        .storeAddress(config.jettonMaster)
-        .storeUint(parseInt(config.secretHash.replace('0x', ''), 16), 32)
-        .storeUint(config.timelockDuration, 32)
-        .storeUint(config.finalityTimelock, 32)
-        .endCell();
-
-    return beginCell()
-        .storeAddress(config.makerAddress)
-        .storeAddress(config.resolverAddress)
-        .storeUint(config.assetType, 8)
-        .storeCoins(config.amount)
-        .storeCoins(config.safetyDeposit)
-        .storeRef(refCell)
-        .endCell();
-}
-
-function tonDestinationEscrowConfigToCell(config: TonDestinationEscrowConfig): Cell {
-    const refCell = beginCell()
-        .storeAddress(config.refundAddress)
-        .storeAddress(config.jettonMaster)
-        .storeUint(parseInt(config.secretHash.replace('0x', ''), 16), 32)
-        .storeUint(config.timelockDuration, 32)
-        .storeUint(config.finalityTimelock, 32)
-        .storeUint(config.exclusivePeriod, 32)
-        .endCell();
-
-    return beginCell()
-        .storeAddress(config.resolverAddress)
-        .storeAddress(config.makerAddress)
-        .storeUint(config.assetType, 8)
-        .storeCoins(config.amount)
-        .storeCoins(config.safetyDeposit)
-        .storeRef(refCell)
-        .endCell();
-}
-
-/**
- * TON Blockchain Adapter for Resolver
- * Handles all TON-specific operations including escrow deployment and management
- */
 export class TonAdapter {
-    private client!: TonClient;
-    private wallet!: WalletContractV4;
-    private secretKey!: Buffer;
+    private client: TonClient;
+    private wallet?: WalletContractV3R2 | WalletContractV4;
+    private keyPair?: any;
+    private sourceEscrowCode: Cell;
+    private destinationEscrowCode: Cell;
 
-    constructor(
-        private config: {
-            rpcUrl: string;
-            apiKey: string;
-            privateKey: string; // mnemonic
-            sourceEscrowCode?: string; // base64 encoded contract code
-            destinationEscrowCode?: string; // base64 encoded contract code
-        }
-    ) { }
+    constructor(private config: TonAdapterConfig) {
+        this.client = new TonClient({
+            endpoint: config.endpoint,
+            apiKey: config.apiKey
+        });
+        this.sourceEscrowCode = config.sourceEscrowCode;
+        this.destinationEscrowCode = config.destinationEscrowCode;
+    }
 
     async initialize(): Promise<void> {
         try {
-            // Initialize TON client
-            this.client = new TonClient({
-                endpoint: this.config.rpcUrl,
-                apiKey: this.config.apiKey
-            });
-
             // Initialize wallet from mnemonic
-            const keyPair = await mnemonicToPrivateKey(this.config.privateKey.split(' '));
-            this.secretKey = keyPair.secretKey;
-            this.wallet = WalletContractV4.create({
-                publicKey: keyPair.publicKey,
-                workchain: 0
-            });
-
-            // Deploy wallet if needed
-            if (!await this.client.isContractDeployed(this.wallet.address)) {
-                Logger.warn('Wallet not deployed, deploying...');
-                await this.deployWallet();
+            this.keyPair = await mnemonicToWalletKey(this.config.mnemonic.split(' '));
+            
+            // Create wallet based on version
+            const walletVersion = this.config.walletVersion || 'v3r2';
+            
+            switch (walletVersion) {
+                case 'v3r2':
+                    this.wallet = WalletContractV3R2.create({ 
+                        workchain: 0, 
+                        publicKey: this.keyPair.publicKey 
+                    });
+                    console.log('Using WalletContractV3R2');
+                    break;
+                case 'v4':
+                    this.wallet = WalletContractV4.create({ 
+                        workchain: 0, 
+                        publicKey: this.keyPair.publicKey 
+                    });
+                    console.log('Using WalletContractV4');
+                    break;
+                
+                default:
+                    throw new Error(`Unsupported wallet version: ${walletVersion}`);
             }
-
-            Logger.info('✅ TON adapter initialized', {
-                address: this.wallet.address.toString()
-            });
+            
+            console.log(`TON Adapter initialized for ${this.config.network}`);
+            console.log(`Wallet address: ${this.wallet.address.toString()}`);
+            
+            // Check wallet balance
+            const balance = await this.getBalance();
+            console.log(`Wallet balance: ${fromNano(balance)} TON`);
+            
         } catch (error) {
-            throw new ResolverError('Failed to initialize TON adapter', {
-                code: 'TON_INIT_ERROR',
-                chain: 'ton'
-            });
+            throw new NetworkError(`Failed to initialize TON adapter: ${error}`);
         }
     }
 
-    /**
- * Deploy escrow contract on TON
- */
-    async deployEscrow(
-        order: CrossChainSwapOrder,
-        secretHash: string,
-        type: 'source' | 'destination'
-    ): Promise<EscrowDeployment> {
-        try {
-            Logger.info('🚀 Deploying TON escrow', { type, orderId: order.orderId });
-
-            // Get compiled contract code
-            const escrowCode = await this.getCompiledCode(type);
-
-            // Parse addresses
-            const makerAddress = Address.parse(order.makerAddress);
-            const resolverAddress = this.wallet.address;
-
-            // Create appropriate escrow contract
-            let escrowContract: TonSourceEscrow | TonDestinationEscrow;
-            let deployAmount: bigint;
-            const safetyDeposit = toNano('0.1'); // Safety deposit as per whitepaper
-            const escrowAmount = toNano(order.amount);
-
-            if (type === 'source') {
-                const config: TonSourceEscrowConfig = {
-                    makerAddress,
-                    resolverAddress,
-                    targetAddress: resolverAddress, // Resolver receives from source
-                    refundAddress: makerAddress, // Maker gets refund if timeout
-                    assetType: 0, // 0 = TON, 1 = Jetton
-                    jettonMaster: Address.parse('EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c'), // Null for TON
-                    amount: escrowAmount,
-                    safetyDeposit,
-                    secretHash: secretHash.replace('0x', '').substring(0, 8), // Use first 32 bits for testing
-                    timelockDuration: order.timelock - Math.floor(Date.now() / 1000), // Duration in seconds
-                    finalityTimelock: 60 // 60 seconds finality
-                };
-
-                escrowContract = TonSourceEscrow.createFromConfig(config, escrowCode, 0);
-                deployAmount = escrowAmount + safetyDeposit + toNano('0.1'); // Include gas
-            } else {
-                const config: TonDestinationEscrowConfig = {
-                    resolverAddress,
-                    makerAddress,
-                    refundAddress: resolverAddress, // Resolver gets refund if timeout
-                    assetType: 0, // 0 = TON, 1 = Jetton
-                    jettonMaster: Address.parse('EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c'), // Null for TON
-                    amount: escrowAmount,
-                    safetyDeposit,
-                    secretHash: secretHash.replace('0x', '').substring(0, 8), // Use first 32 bits for testing
-                    timelockDuration: order.timelock - Math.floor(Date.now() / 1000),
-                    finalityTimelock: 60,
-                    exclusivePeriod: 300 // 5 minutes exclusive period for resolver
-                };
-
-                escrowContract = TonDestinationEscrow.createFromConfig(config, escrowCode, 0);
-                deployAmount = escrowAmount + safetyDeposit + toNano('0.1'); // Include gas
-            }
-
-            // Deploy the contract using proper provider pattern
-            const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
-            await escrowContract.sendDeploy(this.client.provider(escrowContract.address), sender, deployAmount);
-
-            // Wait for deployment
-            await this.waitForDeploy(escrowContract.address);
-
-            const deployment: EscrowDeployment = {
-                chain: 'ton',
-                contractAddress: escrowContract.address.toString(),
-                transactionHash: `ton_tx_${Date.now()}`, // TODO: Get actual tx hash
-                secretHash,
-                amount: order.amount,
-                timelock: order.timelock,
-                deployer: this.wallet.address.toString(),
-                status: EscrowStatus.DEPLOYED
-            };
-
-            Logger.info('✅ TON escrow deployed', {
-                address: deployment.contractAddress,
-                type,
-                explorer: `https://testnet.tonscan.org/address/${escrowContract.address.toString()}`
-            });
-
-            return deployment;
-
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to deploy TON escrow: ${errorMessage}`, {
-                code: 'TON_DEPLOY_ERROR',
-                orderId: order.orderId,
-                chain: 'ton'
-            });
-        }
+    async getBalance(): Promise<bigint> {
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        const state = await this.client.getContractState(this.wallet.address);
+        return state.balance;
     }
 
-    /**
- * Lock funds in escrow
- */
-    async lockFunds(
-        escrowAddress: string,
-        amount: string,
-        tokenAddress?: string // For Jettons
-    ): Promise<string> {
-        try {
-            Logger.info('🔒 Locking funds in TON escrow', {
-                escrow: escrowAddress,
-                amount
-            });
-
-            const escrow = Address.parse(escrowAddress);
-
-            if (tokenAddress) {
-                // Handle Jetton transfer
-                // TODO: Implement Jetton transfer to escrow
-                throw new Error('Jetton transfers not yet implemented');
-            } else {
-                // For source escrow, use the lock operation
-                const sourceEscrow = TonSourceEscrow.createFromAddress(escrow);
-                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
-                await sourceEscrow.sendLock(this.client.provider(escrow), sender, toNano('0.05'));
-
-                Logger.info('✅ Lock operation sent', { escrow: escrowAddress });
-            }
-
-            return `ton_lock_${Date.now()}`;
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to lock funds: ${errorMessage}`, {
-                code: 'TON_LOCK_ERROR',
-                chain: 'ton'
-            });
-        }
-    }
-
-    /**
- * Reveal secret and claim funds
- */
-    async revealSecret(
-        escrowAddress: string,
-        secret: string,
-        recipientAddress: string
-    ): Promise<string> {
-        try {
-            Logger.info('🔓 Revealing secret on TON escrow', {
-                escrow: escrowAddress,
-                secret: secret.substring(0, 8) + '...' // Log partial secret for debugging
-            });
-
-            const escrow = Address.parse(escrowAddress);
-
-            // Try as source escrow first (most common case for resolver)
-            try {
-                const sourceEscrow = TonSourceEscrow.createFromAddress(escrow);
-                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
-                await sourceEscrow.sendWithdraw(this.client.provider(escrow), sender, {
-                    value: toNano('0.05'), // Gas for withdraw
-                    secret: secret.replace('0x', '').substring(0, 8) // Use first 32 bits
-                });
-                Logger.info('✅ Withdraw sent to source escrow', { escrow: escrowAddress });
-            } catch {
-                // If that fails, try as destination escrow
-                const destEscrow = TonDestinationEscrow.createFromAddress(escrow);
-                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
-                await destEscrow.sendWithdraw(this.client.provider(escrow), sender, {
-                    value: toNano('0.05'), // Gas for withdraw
-                    secret: secret.replace('0x', '').substring(0, 8) // Use first 32 bits
-                });
-                Logger.info('✅ Withdraw sent to destination escrow', { escrow: escrowAddress });
-            }
-
-            return `ton_reveal_${Date.now()}`;
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to reveal secret: ${errorMessage}`, {
-                code: 'TON_REVEAL_ERROR',
-                chain: 'ton'
-            });
-        }
-    }
-
-    /**
-     * Cancel escrow and refund
-     */
-    async cancelEscrow(escrowAddress: string): Promise<string> {
-        try {
-            Logger.info('🔄 Canceling TON escrow', { escrow: escrowAddress });
-
-            const escrow = Address.parse(escrowAddress);
-
-            // Try as source escrow first
-            try {
-                const sourceEscrow = TonSourceEscrow.createFromAddress(escrow);
-                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
-                await sourceEscrow.sendRefund(this.client.provider(escrow), sender, toNano('0.05'));
-                Logger.info('✅ Refund sent to source escrow', { escrow: escrowAddress });
-            } catch {
-                // If that fails, try as destination escrow
-                const destEscrow = TonDestinationEscrow.createFromAddress(escrow);
-                const sender = this.wallet.sender(this.client.provider(this.wallet.address), this.secretKey);
-                await destEscrow.sendRefund(this.client.provider(escrow), sender, toNano('0.05'));
-                Logger.info('✅ Refund sent to destination escrow', { escrow: escrowAddress });
-            }
-
-            return `ton_cancel_${Date.now()}`;
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to cancel escrow: ${errorMessage}`, {
-                code: 'TON_CANCEL_ERROR',
-                chain: 'ton'
-            });
-        }
-    }
-
-    /**
- * Get escrow status
- */
-    async getEscrowStatus(escrowAddress: string): Promise<{
-        isLocked: boolean;
-        isExecuted: boolean;
-        canRefund: boolean;
-        balance: string;
-    }> {
-        try {
-            const escrow = Address.parse(escrowAddress);
-            const state = await this.client.getContractState(escrow);
-
-            if (state.state !== 'active') {
-                return {
-                    isLocked: false,
-                    isExecuted: false,
-                    canRefund: false,
-                    balance: '0'
-                };
-            }
-
-            // Try to get details from contract
-            try {
-                const sourceEscrow = TonSourceEscrow.createFromAddress(escrow);
-                const details = await sourceEscrow.getEscrowDetails();
-
-                // Status codes: 0 = created, 1 = locked, 2 = executed, 3 = refunded
-                return {
-                    isLocked: details.status === 1,
-                    isExecuted: details.status === 2,
-                    canRefund: await sourceEscrow.canRefund(),
-                    balance: fromNano(state.balance)
-                };
-            } catch {
-                // If source escrow fails, try destination escrow
-                try {
-                    const destEscrow = TonDestinationEscrow.createFromAddress(escrow);
-                    const details = await destEscrow.getEscrowDetails();
-
-                    return {
-                        isLocked: details.status === 1,
-                        isExecuted: details.status === 2,
-                        canRefund: await destEscrow.canRefund(),
-                        balance: fromNano(state.balance)
-                    };
-                } catch {
-                    // Fallback to basic state check
-                    return {
-                        isLocked: state.balance > 0n,
-                        isExecuted: false,
-                        canRefund: false,
-                        balance: fromNano(state.balance)
-                    };
-                }
-            }
-
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to get escrow status: ${errorMessage}`, {
-                code: 'TON_STATUS_ERROR',
-                chain: 'ton'
-            });
-        }
-    }
-
-    /**
-     * Get wallet balance
-     */
-    async getBalance(): Promise<string> {
-        const balance = await this.client.getBalance(this.wallet.address);
-        return fromNano(balance);
-    }
-
-    /**
-     * Get wallet address
-     */
-    async getAddress(): Promise<string> {
+    getWalletAddress(): string {
+        if (!this.wallet) throw new Error('Wallet not initialized');
         return this.wallet.address.toString();
     }
 
-    /**
-     * Helper: Get compiled contract code
-     */
-    private async getCompiledCode(type: 'source' | 'destination'): Promise<Cell> {
+    // === ESCROW CONTRACT HELPERS ===
+
+    private createSourceEscrowConfigCell(config: TonSourceEscrowConfig): Cell {
+        // Create reference cell for additional data
+        const refCell = beginCell()
+            .storeAddress(config.targetAddress)
+            .storeAddress(config.refundAddress)
+            .storeAddress(config.jettonMaster)
+            .storeUint(parseInt(config.secretHash.replace('0x', ''), 16), 32)
+            .storeUint(config.timelockDuration, 32)
+            .storeUint(config.finalityTimelock, 32)
+            .endCell();
+
+        // Main cell with essential data
+        return beginCell()
+            .storeAddress(config.makerAddress)
+            .storeAddress(config.resolverAddress)
+            .storeUint(config.assetType, 8)
+            .storeCoins(config.amount)
+            .storeCoins(config.safetyDeposit)
+            .storeRef(refCell)
+            .endCell();
+    }
+
+    private createDestinationEscrowConfigCell(config: TonDestinationEscrowConfig): Cell {
+        // Parse secret hash properly
+        const secretHashHex = config.secretHash.replace('0x', '');
+        const secretHashInt = parseInt(secretHashHex, 16);
+        console.log(`🔐 Secret hash processing: "${config.secretHash}" -> "${secretHashHex}" -> ${secretHashInt}`);
+        
+        // Create reference cell for additional data
+        const refCell = beginCell()
+            .storeAddress(config.refundAddress)
+            .storeAddress(config.jettonMaster)
+            .storeUint(secretHashInt, 32)
+            .storeUint(config.timelockDuration, 32)
+            .storeUint(config.finalityTimelock, 32)
+            .storeUint(config.exclusivePeriod, 32)
+            .endCell();
+
+        console.log('📦 Reference cell created with exclusivePeriod:', config.exclusivePeriod);
+
+        // Main cell with essential data
+        const mainCell = beginCell()
+            .storeAddress(config.resolverAddress)
+            .storeAddress(config.makerAddress)
+            .storeUint(config.assetType, 8)
+            .storeCoins(config.amount)
+            .storeCoins(config.safetyDeposit)
+            .storeRef(refCell)
+            .endCell();
+
+        console.log('📦 Main cell created with asset type:', config.assetType, 'amount:', config.amount.toString());
+        return mainCell;
+    }
+
+    // === SOURCE ESCROW OPERATIONS ===
+
+    async deploySourceEscrow(order: FusionOrder, secretHash: string): Promise<Address> {
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
         try {
-            // First check if we have pre-compiled code in config
-            if (type === 'source' && this.config.sourceEscrowCode) {
-                // Check if it's a placeholder value
-                if (this.config.sourceEscrowCode.includes('base64_encoded') ||
-                    this.config.sourceEscrowCode.length < 100) {
-                    throw new Error(`Source escrow code not properly configured. Please update TON_SOURCE_ESCROW_TEMPLATE in .env`);
-                }
-                return Cell.fromBase64(this.config.sourceEscrowCode);
-            }
-            if (type === 'destination' && this.config.destinationEscrowCode) {
-                // Check if it's a placeholder value
-                if (this.config.destinationEscrowCode.includes('base64_encoded') ||
-                    this.config.destinationEscrowCode.length < 100) {
-                    throw new Error(`Destination escrow code not properly configured. Please update TON_DESTINATION_ESCROW_TEMPLATE in .env`);
-                }
-                return Cell.fromBase64(this.config.destinationEscrowCode);
-            }
+            const config: TonSourceEscrowConfig = {
+                makerAddress: Address.parse(order.maker),
+                resolverAddress: this.wallet.address,
+                targetAddress: Address.parse(order.targetAddress),
+                refundAddress: Address.parse(order.refundAddress),
+                assetType: order.makerAsset.type,
+                jettonMaster: order.makerAsset.type === AssetType.JETTON 
+                    ? Address.parse(order.makerAsset.address) 
+                    : Address.parse('EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c'), // Zero address
+                amount: order.makerAsset.amount,
+                safetyDeposit: order.makerSafetyDeposit,
+                secretHash: secretHash,
+                timelockDuration: order.timelockDuration,
+                finalityTimelock: order.finalityTimelock
+            };
 
-            // If not in config, we need to compile it
-            // Note: This requires the contracts to be compiled beforehand
-            // You would typically run: npm run build in the ton directory
-            // and then read the compiled output
-
-            Logger.warn(`⚠️ ${type} escrow code not configured, attempting to load from file`);
-
-            // TODO: Load compiled contract from file system
-            // For now, throw an error indicating manual compilation is needed
-            throw new Error(
-                `${type} escrow contract code not configured. ` +
-                `Please compile the contracts in the ton/ directory using 'npm run build' ` +
-                `and then set ${type === 'source' ? 'TON_SOURCE_ESCROW_TEMPLATE' : 'TON_DESTINATION_ESCROW_TEMPLATE'} ` +
-                `in your .env file with the base64 encoded contract code.`
-            );
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-            throw new ResolverError(`Failed to get compiled code: ${errorMessage}`, {
-                code: 'TON_COMPILE_ERROR',
-                chain: 'ton'
+            const data = this.createSourceEscrowConfigCell(config);
+            const init = { code: this.sourceEscrowCode, data };
+            const address = contractAddress(0, init);
+            
+            // Deploy the escrow contract
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: address,
+                    value: toNano('0.15'), // 0.05 + 0.01 + 0.05 + buffer
+                    init,
+                    body: beginCell().endCell() // Empty message for deployment
+                })]
             });
+            
+            console.log(`Source escrow deployed at: ${address.toString()}`);
+            return address;
+
+        } catch (error) {
+            throw new ContractError(`Failed to deploy source escrow: ${error}`, order.orderId);
         }
     }
 
-    /**
-     * Helper: Get wallet seqno
-     */
-    private async getSeqno(): Promise<number> {
-        const contract = this.client.open(this.wallet);
-        return await contract.getSeqno();
+
+
+    async lockSourceEscrow(escrowAddress: Address): Promise<void> {
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.LOCK_ESCROW, 32)
+                        .storeUint(0, 64) // query_id
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Source escrow locked: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to lock source escrow: ${error}`);
+        }
     }
 
+    async withdrawFromSourceEscrow(escrowAddress: Address, secret: string): Promise<void> {
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            // Create secret reference cell with 32-bit integer (like the wrapper does)
+            const secretInt = parseInt(secret.replace('0x', ''), 16);
+            const secretCell = beginCell()
+                .storeUint(secretInt, 32)
+                .endCell();
 
-
-    /**
-     * Helper: Deploy wallet if needed
-     */
-    private async deployWallet(): Promise<void> {
-        const deployAmount = toNano('0.1');
-
-        // You would need to fund this wallet first
-        Logger.info('Deploying wallet...', {
-            address: this.wallet.address.toString(),
-            requiredAmount: fromNano(deployAmount)
-        });
-
-        // TODO: Implement wallet deployment
-        throw new Error('Wallet deployment not implemented - please fund the wallet first');
+            console.log(`🔍 Debug: Sending withdrawal with opcode ${Opcodes.WITHDRAW} (0x${Opcodes.WITHDRAW.toString(16)})`);
+            console.log(`🔍 Debug: Secret: 0x${secret}`);
+            
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.WITHDRAW, 32)
+                        .storeUint(0, 64) // query_id
+                        .storeRef(secretCell) // Store as reference, not inline
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Withdrew from source escrow: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to withdraw from source escrow: ${error}`);
+        }
     }
 
-    /**
-     * Helper: Wait for contract deployment
-     */
-    private async waitForDeploy(address: Address, maxAttempts = 30): Promise<void> {
-        for (let i = 0; i < maxAttempts; i++) {
-            if (await this.client.isContractDeployed(address)) {
-                return;
+    async refundSourceEscrow(escrowAddress: Address): Promise<void> {
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.REFUND, 32)
+                        .storeUint(0, 64) // query_id
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Refunded source escrow: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to refund source escrow: ${error}`);
+        }
+    }
+
+    // === DESTINATION ESCROW OPERATIONS ===
+
+    async deployDestinationEscrow(order: FusionOrder, secretHash: string): Promise<Address> {
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            console.log('🔧 Creating destination escrow config...');
+            const config: TonDestinationEscrowConfig = {
+                resolverAddress: this.wallet.address,
+                makerAddress: Address.parse(order.maker),
+                refundAddress: Address.parse(order.refundAddress),
+                assetType: order.takerAsset.type,
+                jettonMaster: order.takerAsset.type === AssetType.JETTON 
+                    ? Address.parse(order.takerAsset.address)
+                    : Address.parse('EQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM9c'), // Zero address
+                amount: order.takerAsset.amount,
+                safetyDeposit: order.takerSafetyDeposit || BigInt(0),
+                secretHash: secretHash,
+                timelockDuration: order.timelockDuration,
+                finalityTimelock: order.finalityTimelock,
+                exclusivePeriod: order.exclusivePeriod || 3600 // Default 1 hour
+            };
+
+            console.log('📋 Destination escrow config:', {
+                resolverAddress: config.resolverAddress.toString(),
+                makerAddress: config.makerAddress.toString(),
+                refundAddress: config.refundAddress.toString(),
+                assetType: config.assetType,
+                amount: config.amount.toString(),
+                safetyDeposit: config.safetyDeposit.toString(),
+                secretHash: config.secretHash,
+                timelockDuration: config.timelockDuration,
+                finalityTimelock: config.finalityTimelock,
+                exclusivePeriod: config.exclusivePeriod
+            });
+
+            const data = this.createDestinationEscrowConfigCell(config);
+            console.log('📦 Contract data cell created, size:', data.bits.length, 'bits');
+            
+            const init = { code: this.destinationEscrowCode, data };
+            const address = contractAddress(0, init);
+            console.log('📍 Computed contract address:', address.toString());
+            
+            // Deploy the escrow contract
+            const walletContract = this.client.open(this.wallet);
+            const seqno = await walletContract.getSeqno();
+            console.log('🔢 Wallet seqno:', seqno);
+            
+            await walletContract.sendTransfer({
+                seqno,
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: address,
+                    value: toNano('0.25'), // Increased gas for deployment
+                    init,
+                    body: beginCell().endCell() // Empty message for deployment
+                })]
+            });
+            
+            console.log(`Destination escrow deployed at: ${address.toString()}`);
+            return address;
+
+        } catch (error) {
+            console.error('❌ Deployment error details:', error);
+            throw new ContractError(`Failed to deploy destination escrow: ${error}`, order.orderId);
+        }
+    }
+
+    async lockDestinationEscrow(escrowAddress: Address): Promise<void> {
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.LOCK_ESCROW, 32)
+                        .storeUint(0, 64) // query_id
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Destination escrow locked: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to lock destination escrow: ${error}`);
+        }
+    }
+
+    async withdrawFromDestinationEscrow(escrowAddress: Address, secret: string): Promise<void> {
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            const secretInt = parseInt(secret.replace('0x', ''), 16);
+            const secretCell = beginCell()
+                .storeUint(secretInt, 32)
+                .endCell();
+
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.WITHDRAW, 32)
+                        .storeUint(0, 64) // query_id
+                        .storeRef(secretCell)
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Withdrew from destination escrow: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to withdraw from destination escrow: ${error}`);
+        }
+    }
+
+    async refundDestinationEscrow(escrowAddress: Address): Promise<void> {
+        if (!this.wallet) throw new Error('Wallet not initialized');
+        
+        try {
+            const walletContract = this.client.open(this.wallet);
+            await walletContract.sendTransfer({
+                seqno: await walletContract.getSeqno(),
+                secretKey: this.keyPair.secretKey,
+                sendMode: SendMode.PAY_GAS_SEPARATELY,
+                messages: [internal({
+                    to: escrowAddress,
+                    value: toNano('0.05'),
+                    body: beginCell()
+                        .storeUint(Opcodes.REFUND, 32)
+                        .storeUint(0, 64) // query_id
+                        .endCell()
+                })]
+            });
+            
+            console.log(`Refunded destination escrow: ${escrowAddress.toString()}`);
+        } catch (error) {
+            throw new ContractError(`Failed to refund destination escrow: ${error}`);
+        }
+    }
+
+    // === QUERY OPERATIONS ===
+    // Note: Query operations would require the full contract wrappers
+    // For now, we focus on the core deployment and transaction functionality
+
+    // === UTILITY METHODS ===
+
+    generateSecret(): SecretData {
+        // Hardcode "test123" secret for debugging
+        const testText = "test123";
+        
+        // Convert text to hex (first 4 bytes like the working script does)
+        const secretBuffer = Buffer.from(testText);
+        const secret = secretBuffer.slice(0, 4).toString('hex').padEnd(8, '0');
+        
+        // Create hash the same way the contract does: cell_hash() >> 224
+        const secretCell = beginCell()
+            .storeUint(parseInt(secret, 16), 32)
+            .endCell();
+        
+        // Get cell hash and take first 32 bits (like contract does)
+        const cellHashBuffer = secretCell.hash();
+        const cellHashBigInt = BigInt('0x' + cellHashBuffer.toString('hex'));
+        const hash32bit = Number(cellHashBigInt >> 224n); // Take first 32 bits
+        const hash = hash32bit.toString(16).padStart(8, '0');
+        
+        console.log(`🔐 Secret generation (hardcoded "test123"):`);
+        console.log(`   Text: "${testText}"`);
+        console.log(`   Secret: 0x${secret}`);
+        console.log(`   Cell hash: ${cellHashBuffer.toString('hex')}`);
+        console.log(`   Hash (32-bit): 0x${hash}`);
+        
+        return {
+            secret: secret,
+            hash: hash,
+            revealed: false
+        };
+    }
+
+    validateOrder(order: FusionOrder): void {
+        if (!order.orderId) {
+            throw new ValidationError('Order ID is required');
+        }
+        
+        if (!order.maker) {
+            throw new ValidationError('Maker address is required');
+        }
+        
+        if (!order.makerAsset.amount || order.makerAsset.amount <= 0) {
+            throw new ValidationError('Maker asset amount must be positive');
+        }
+        
+        if (!order.takerAsset.amount || order.takerAsset.amount <= 0) {
+            throw new ValidationError('Taker asset amount must be positive');
+        }
+        
+        if (order.timelockDuration < 3600) {
+            throw new ValidationError('Timelock duration must be at least 1 hour');
+        }
+        
+        // Validate addresses
+        try {
+            Address.parse(order.maker);
+            Address.parse(order.refundAddress);
+            Address.parse(order.targetAddress);
+        } catch (error) {
+            throw new ValidationError(`Invalid address format: ${error}`);
+        }
+    }
+
+    formatAddress(address: string): string {
+        try {
+            return Address.parse(address).toString();
+        } catch (error) {
+            throw new ValidationError(`Invalid address format: ${address}`);
+        }
+    }
+
+    async waitForTransaction(address: Address, timeout: number = 60000): Promise<void> {
+        const startTime = Date.now();
+        
+        while (Date.now() - startTime < timeout) {
+            try {
+                const state = await this.client.getContractState(address);
+                if (state.lastTransaction) {
+                    return;
+                }
+            } catch (error) {
+                // Contract might not exist yet, continue waiting
             }
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            await new Promise(resolve => setTimeout(resolve, 2000));
         }
-        throw new Error('Contract deployment timeout');
+        
+        throw new NetworkError(`Transaction timeout after ${timeout}ms`);
     }
-}
+} 

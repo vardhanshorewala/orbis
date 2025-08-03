@@ -1,5 +1,5 @@
-import { OrbisRelayerServer } from './relayer';
-import { Network, AssetType } from './types';
+import { OrbisRelayerServer } from './server';
+import { Network, AssetType } from './typeston';
 
 // Real compiled contract codes from the end-to-end test
 const sourceEscrowCode = 'te6cckECFwEABO8AART/APSkE/S88sgLAQIBYgISAgLKAwYC9dTPQ0wMBcbCSXwPg+kAwIscAjk4wMe1E0PpA+kDTB/oA+gDUAdD6QPpA+kDTH9Mf0x8wcFMHxwCzjhIxB9MfIMcAs5Y4B9MHMAeRMOKROOIQal41XiRVA2zBwACS8CCRMOLgAtMf0z8xIcABlhAjXwPwIOAyIMAF4wIggQFAAZb8CEALMACljDUMNDwIuAxwAOS8CPgMIQP8vACAc4HCwIBIAgJAN87UTQ+kD6QNMH+gD6ANQw0PpA+kD6QNMf0x/THzBTdqCCCvrwgKAcvvLgdBCaEIkQSBA3EDZeIlUC+CNxyFALzxZQCc8WUAbPFhLLH8sfE8sfychQCM8WUAbPFhLLB1AE+gJQA/oCE8zLH8sHye1UgAbc7UTQ+kD6QNMH+gD6ANQB0PpA+kD6QNMf0x/THzBwUwfHALOOEjEH0x8gxwCzljgH0wcwB5Ew4pE44hBqXjVeJFUDUdvHBfLgagzAAfLgZfgjU8GgvvLgZlUKcoAoAZshQC88WUAnPFlAGzxYSyx/LHxPLH8nIUAjPFlAGzxYSywdQBPoCUAP6AhPMyx/LB8ntVAIBIAwPAvc7UTQ+kD6QNMH+gD6ANQB0PpA+kD6QNMf0x/THzBwUwfHALOOEjEH0x8gxwCzljgH0wcwB5Ew4pE44hBqXjVeJFUDUevHBfLgag3AAvLgZ1IsyAHPFsn5AKvfAbry4GglwACOEnCAEMjLBSnPFiX6AstqyXH7AOMOcIAQgDQ4AanBTAIIQF41FGYAYyMsFKc8WghAF9eEA+gLLH8s/JvoCKs8WKs8WywCCCvrwgPoCywDJcfsAAI7IywUqzxYk+gLLaslx+wAQm1UYc8hQC88WUAnPFlAGzxYSyx/LHxPLH8nIUAjPFlAGzxYSywdQBPoCUAP6AhPMyx/LB8ntVAL1O1E0PpA+kDTB/oA+gDUAdD6QPpA+kDTH9Mf0x8wcFMHxwCzjhIxB9MfIMcAs5Y4B9MHMAeRMOKROOIQal41XiRVA1PcxwVT7McFsfLgaSDAAgHAAbHy4Gr4I1MToL7y4HUnwACOEnCAEMjLBSrPFif6AstqyXH7AOMOgEBEAanBTAIIQF41FGYAYyMsFK88WghAF9eEA+gLLH8s/KPoCK88WK88WywCCCvrwgPoCywDJcfsAAJ5RyscFjhJwgBDIywUrzxYl+gLLaslx+wDeVQp0yFALzxZQCc8WUAbPFhLLH8sfE8sfychQCM8WUAbPFhLLB1AE+gJQA/oCE8zLH8sHye1UAgEgExYCASAUFQC5un6u1E0PpA+kDTB/oA+gDUAdD6QPpA+kDTH9Mf0x8wcFMHxwCzjhIxB9MfIMcAs5Y4B9MHMAeRMOKROOIQal41XiRVAzJskyHDAgLDARKwkltw4PgjAqC5kXDgf4AJ+40V7UTQ+kD6QNMH+gD6ANQB0PpA+kD6QNMf0x/THzBwUwfHALOOEjEH0x8gxwCzljgH0wcwB5Ew4pE44hBqXjVeJFUDMjMKCQgHBgUEQxOADFvhE/aiaH0gfSBpg/0AfQBqAOh9IH0gfSBpj+mP6Y+YOCmD44BZxwkYg+mPkGOAWcscA+mDmAPImHFInHEINS8arxIqgZqvgag8L4PhgUktuHAA5ADni2T8gFXvgN1ZyLhwP8t7gxtQ==';
@@ -9,14 +9,46 @@ const destinationEscrowCode = 'te6cckECGgEABUcAART/APSkE/S88sgLAQIBYgITAgLKAwYC9
 // Test mnemonic (24 words) - for testing only, don't use in production
 const testMnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art';
 
+// Example configuration with real contract codes
+const relayerConfig = {
+    // Network configurations
+    tonNetwork: Network.TON_TESTNET,
+    evmNetwork: Network.ETHEREUM_SEPOLIA,
+    
+    // TON configuration
+    tonEndpoint: 'https://testnet.toncenter.com/api/v2/jsonRPC',
+    tonApiKey: process.env.TON_API_KEY, // Optional
+    tonMnemonic: process.env.TON_MNEMONIC || testMnemonic, // Use env var or test mnemonic
+    
+    // Real contract codes (base64 encoded)
+    tonSourceEscrowCode: sourceEscrowCode,
+    tonDestinationEscrowCode: destinationEscrowCode,
+    
+    // Gas limits
+    gasLimits: {
+        tonDeploy: BigInt('100000000'), // 0.1 TON
+        tonLock: BigInt('50000000'),    // 0.05 TON
+        tonWithdraw: BigInt('50000000'), // 0.05 TON
+        tonRefund: BigInt('50000000')   // 0.05 TON
+    },
+    
+    // Timing configurations (in seconds)
+    defaultTimelockDuration: 3600,     // 1 hour
+    defaultFinalityTimelock: 10,     // 30 minutes
+    defaultExclusivePeriod: 3600,      // 1 hour
+    
+    // Safety settings
+    minSafetyDeposit: BigInt('10000000'), // 0.01 TON
+    maxOrderAmount: BigInt('1000000000000') // 1000 TON
+};
+
 const serverConfig = {
-    port: 3001,
-    forwardEndpoint: process.env.RESOLVER_ENDPOINT || 'http://localhost:3002' // Resolver server endpoint
+    port: 3002,
 };
 
 // Start the server
 async function startServer() {
-    const relayer = new OrbisRelayerServer(serverConfig);
+    const relayer = new OrbisRelayerServer(relayerConfig, serverConfig);
     
     try {
         console.log('🚀 Starting Orbis Relayer Server...');
@@ -26,9 +58,38 @@ async function startServer() {
         // Show example API usage
         console.log('\n📋 API Endpoints:');
         console.log(`GET  http://localhost:${serverConfig.port}/health`);
-        console.log(`POST http://localhost:${serverConfig.port}/process-order (forwards to resolver)`);
-        console.log(`\n🔗 Forwarding to resolver: ${serverConfig.forwardEndpoint}/processordertontoevm`);
-      
+        console.log(`POST http://localhost:${serverConfig.port}/process-order`);
+        
+        console.log('\n📝 Example curl command to test:');
+        console.log(`curl -X GET http://localhost:${serverConfig.port}/health`);
+        
+        console.log('\n📋 Example order processing request:');
+        console.log(`curl -X POST http://localhost:${serverConfig.port}/process-order \\`);
+        console.log(`  -H "Content-Type: application/json" \\`);
+        console.log(`  -d '{`);
+        console.log(`    "maker": "0QAhSTtPS0xn3tk-JgMTnVccsoRM94KLnM-Z59FJLPhOm-tm",`);
+        console.log(`    "taker": "0x123...",`);
+        console.log(`    "makerAsset": {`);
+        console.log(`      "type": ${AssetType.NATIVE_TON},`);
+        console.log(`      "address": "TON",`);
+        console.log(`      "amount": "1000000000",`);
+        console.log(`      "network": "${Network.TON_TESTNET}"`);
+        console.log(`    },`);
+        console.log(`    "takerAsset": {`);
+        console.log(`      "type": ${AssetType.NATIVE_ETH},`);
+        console.log(`      "address": "ETH",`);
+        console.log(`      "amount": "1000000000000000000",`);
+        console.log(`      "network": "${Network.ETHEREUM_SEPOLIA}"`);
+        console.log(`    },`);
+        console.log(`    "sourceChain": "${Network.TON_TESTNET}",`);
+        console.log(`    "destinationChain": "${Network.ETHEREUM_SEPOLIA}",`);
+        console.log(`    "refundAddress": "0QAhSTtPS0xn3tk-JgMTnVccsoRM94KLnM-Z59FJLPhOm-tm",`);
+        console.log(`    "targetAddress": "0x456...",`);
+        console.log(`    "timelockDuration": 3600,`);
+        console.log(`    "finalityTimelock": 1800`);
+        console.log(`  }'`);
+        
+        console.log('\n💡 Note: Using test mnemonic. Set TON_MNEMONIC env var for production use.');
         console.log('💡 Server will stay running until you press Ctrl+C');
         
     } catch (error) {
