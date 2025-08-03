@@ -12,12 +12,26 @@ The bridge uses two main escrow contracts:
 ### Flow Overview
 
 #### TON → ETH Swap
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 1. User sends TON to `TonSourceEscrow`
 2. Contract locks TON and emits cross-chain message
 3. Relayer processes message on Ethereum
 4. User receives ETH on Ethereum
 
 #### ETH → TON Swap
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 1. User sends ETH to Ethereum escrow contract
 2. Ethereum contract emits cross-chain message
 3. Relayer calls `TonDestinationEscrow` on TON
@@ -33,7 +47,11 @@ The bridge uses two main escrow contracts:
 ## 📁 Project Structure
 
 ```
+<<<<<<< HEAD
+tron/
+=======
 ton/
+>>>>>>> d4f90853f04d52d24e2f3d999b765714f9be75d7
 ├── contracts/               # Smart contracts (FunC)
 │   ├── imports/            # Shared utilities and constants
 │   │   ├── constants.fc    # Contract constants
@@ -92,11 +110,23 @@ npm run interact     # Interact with deployed contracts
 **Purpose**: Handles TON → ETH swaps on the TON side
 
 **Key Functions**:
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 - `lock_tokens()`: Lock TON tokens for cross-chain swap
 - `release_tokens()`: Release tokens back to user (if swap fails)
 - `confirm_swap()`: Confirm successful cross-chain swap
 
 **Messages**:
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 - `op::lock_tokens`: Lock tokens for swap
 - `op::release_tokens`: Release locked tokens
 - `op::confirm_swap`: Confirm cross-chain swap completion
@@ -106,11 +136,23 @@ npm run interact     # Interact with deployed contracts
 **Purpose**: Handles ETH → TON swaps on the TON side
 
 **Key Functions**:
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 - `mint_tokens()`: Mint TON tokens after ETH is locked
 - `burn_tokens()`: Burn tokens if swap is cancelled
 - `process_cross_chain_message()`: Process messages from Ethereum
 
 **Messages**:
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 - `op::mint_tokens`: Mint tokens for user
 - `op::burn_tokens`: Burn tokens (cancel swap)
 - `op::cross_chain_message`: Process cross-chain message
@@ -160,7 +202,11 @@ describe('TonSourceEscrow', () => {
         const result = await contract.send({
             op: 'lock_tokens',
             amount: toNano('10'),
+<<<<<<< HEAD
+            destination: 'ethereum_address',
+=======
             destination: 'ethereum_address'
+>>>>>>> d4f90853f04d52d24e2f3d999b765714f9be75d7
         });
         expect(result.success).toBe(true);
     });
@@ -171,21 +217,39 @@ describe('TonSourceEscrow', () => {
 
 ### Testnet Deployment
 
-1. **Configure environment**
-   ```bash
-   export TON_NETWORK=testnet
-   export DEPLOYER_MNEMONIC="your mnemonic phrase"
-   ```
+1.  **Configure environment**
+    <<<<<<< HEAD
 
-2. **Deploy contracts**
-   ```bash
-   npm run deploy:source
-   npm run deploy:destination
-   ```
+        ```bash
+        export TON_NETWORK=testnet
+        export DEPLOYER_MNEMONIC="your mnemonic phrase"
+        ```
 
-3. **Verify deployment**
-   - Check contract addresses in console output
-   - Verify on [TON Testnet Explorer](https://testnet.tonscan.org/)
+2.  **Deploy contracts**
+
+    ```bash
+    npm run deploy:source
+    npm run deploy:destination
+    ```
+
+3.  # **Verify deployment** - Check contract addresses in console output - Verify on [TON Testnet Explorer](https://testnet.tonscan.org/)
+
+    ```bash
+    export TON_NETWORK=testnet
+    export DEPLOYER_MNEMONIC="your mnemonic phrase"
+    ```
+
+4.  **Deploy contracts**
+
+    ```bash
+    npm run deploy:source
+    npm run deploy:destination
+    ```
+
+5.  **Verify deployment**
+    - Check contract addresses in console output
+    - Verify on [TON Testnet Explorer](https://testnet.tonscan.org/)
+        > > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
 
 ### Contract Addresses (Testnet)
 
@@ -194,24 +258,50 @@ After deployment, update these addresses in your frontend:
 ```typescript
 // Update in your frontend configuration
 const CONTRACT_ADDRESSES = {
+<<<<<<< HEAD
+    TON_SOURCE_ESCROW: 'EQC...', // From deployment output
+    TON_DESTINATION_ESCROW: 'EQD...', // From deployment output
+=======
   TON_SOURCE_ESCROW: 'EQC...', // From deployment output
   TON_DESTINATION_ESCROW: 'EQD...', // From deployment output
+>>>>>>> d4f90853f04d52d24e2f3d999b765714f9be75d7
 };
 ```
 
 ## 🔐 Security Features
 
 ### Access Control
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 - Owner-only functions for critical operations
 - Multi-signature support for admin functions
 - Time-locked operations for security
 
 ### Escrow Safety
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 - Funds locked until cross-chain confirmation
 - Automatic refund mechanisms for failed swaps
 - Slippage protection and timeout handling
 
 ### Gas Optimization
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 - Efficient message handling
 - Minimal storage usage
 - Optimized computation paths
@@ -223,9 +313,15 @@ const CONTRACT_ADDRESSES = {
 ```typescript
 // testnet.config.ts
 export const TESTNET_CONFIG = {
+<<<<<<< HEAD
+    network: 'testnet',
+    endpoint: 'https://testnet.toncenter.com/api/v2/jsonRPC',
+    apiKey: process.env.TON_API_KEY,
+=======
   network: 'testnet',
   endpoint: 'https://testnet.toncenter.com/api/v2/jsonRPC',
   apiKey: process.env.TON_API_KEY,
+>>>>>>> d4f90853f04d52d24e2f3d999b765714f9be75d7
 };
 ```
 
@@ -242,24 +338,34 @@ const BRIDGE_FEE = 10000000; ;; 0.01 TON
 ## 🛠️ Development Workflow
 
 ### 1. Write Contract
+
+<<<<<<< HEAD
+
+=======
+
+> > > > > > > d4f90853f04d52d24e2f3d999b765714f9be75d7
+
 ```bash
 # Edit contracts in contracts/ directory
 vim contracts/ton_source_escrow.fc
 ```
 
 ### 2. Create Wrapper
+
 ```bash
 # Generate TypeScript wrapper
 npm run build
 ```
 
 ### 3. Write Tests
+
 ```bash
 # Add tests in tests/ directory
 vim tests/TonSourceEscrow.spec.ts
 ```
 
 ### 4. Test & Deploy
+
 ```bash
 npm test
 npm run deploy:source
@@ -268,15 +374,18 @@ npm run deploy:source
 ## 📚 Resources
 
 ### TON Development
+
 - [TON Documentation](https://docs.ton.org/)
 - [FunC Documentation](https://docs.ton.org/develop/func/overview)
 - [TON SDK](https://github.com/ton-org/ton)
 
 ### Smart Contract Examples
+
 - [TON Smart Contract Examples](https://github.com/ton-org/ton/tree/master/examples)
 - [Jetton Implementation](https://github.com/ton-org/token-contract)
 
 ### Tools
+
 - [TON Explorer](https://tonscan.org/)
 - [TON Testnet Explorer](https://testnet.tonscan.org/)
 - [TON Wallet](https://wallet.ton.org/)
@@ -286,21 +395,22 @@ npm run deploy:source
 ### Common Issues
 
 1. **Compilation Errors**
-   ```bash
-   # Clean and rebuild
-   npm run clean
-   npm run build
-   ```
+
+    ```bash
+    # Clean and rebuild
+    npm run clean
+    npm run build
+    ```
 
 2. **Deployment Failures**
-   - Check network connection
-   - Verify mnemonic phrase
-   - Ensure sufficient TON balance
+    - Check network connection
+    - Verify mnemonic phrase
+    - Ensure sufficient TON balance
 
 3. **Test Failures**
-   - Update test network configuration
-   - Check contract addresses
-   - Verify test data validity
+    - Update test network configuration
+    - Check contract addresses
+    - Verify test data validity
 
 ### Debug Mode
 
@@ -315,17 +425,18 @@ DEBUG=ton:* npm test
 
 ```typescript
 interface CrossChainMessage {
-  operation: 'lock' | 'mint' | 'release' | 'burn';
-  amount: bigint;
-  recipient: string;
-  nonce: number;
-  timestamp: number;
+    operation: 'lock' | 'mint' | 'release' | 'burn';
+    amount: bigint;
+    recipient: string;
+    nonce: number;
+    timestamp: number;
 }
 ```
 
 ### Relayer Integration
 
 The contracts are designed to work with cross-chain relayers that:
+
 1. Monitor events on both chains
 2. Verify cross-chain messages
 3. Execute corresponding operations

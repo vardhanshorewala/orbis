@@ -7,7 +7,9 @@ export const env = createEnv({
    * isn't built with invalid env vars.
    */
   server: {
-    NODE_ENV: z.enum(["development", "test", "production"]),
+    NODE_ENV: z
+      .enum(["development", "test", "production"])
+      .default("development"),
   },
 
   /**
@@ -16,9 +18,8 @@ export const env = createEnv({
    * `NEXT_PUBLIC_`.
    */
   client: {
-    NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: z.string(),
-    NEXT_PUBLIC_ALCHEMY_ID: z.string().optional(),
-    NEXT_PUBLIC_TON_MANIFEST_URL: z.string().url(),
+    NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: z.string().default("dummy_project_id_not_used"),
+    NEXT_PUBLIC_TON_MANIFEST_URL: z.string().url().default("https://raw.githubusercontent.com/ton-connect/demo-dapp-with-react-ui/master/public/tonconnect-manifest.json"),
   },
 
   /**
@@ -28,11 +29,10 @@ export const env = createEnv({
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
     NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID,
-    NEXT_PUBLIC_ALCHEMY_ID: process.env.NEXT_PUBLIC_ALCHEMY_ID,
     NEXT_PUBLIC_TON_MANIFEST_URL: process.env.NEXT_PUBLIC_TON_MANIFEST_URL,
   },
   /**
-   * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
+   * Run `build` or `dev` with SKIP_ENV_VALIDATION to skip env validation. This is especially
    * useful for Docker builds.
    */
   skipValidation: !!process.env.SKIP_ENV_VALIDATION,
