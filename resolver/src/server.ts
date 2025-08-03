@@ -293,12 +293,12 @@ export class OrbisRelayerServer {
             console.log(`✅ Source escrow deployed at: ${sourceAddress.toString()}`);
 
             // Wait 15 seconds for deployment and finality timelock
-            console.log('⏳ Waiting 15 seconds for contract deployment and finality timelock...');
-            await new Promise(resolve => setTimeout(resolve, 15000));
+            console.log('⏳ Waiting 20 seconds for contract deployment and finality timelock...');
+            await new Promise(resolve => setTimeout(resolve, 20000));
 
             // Lock the source escrow
             console.log('🔐 Locking source escrow...');
-            await this.tonAdapter.lockSourceEscrow(sourceAddress);
+            // await this.tonAdapter.lockSourceEscrow(sourceAddress);
             console.log('✅ Source escrow locked successfully!');
 
             // Store order
@@ -360,13 +360,6 @@ export class OrbisRelayerServer {
             // Create demo order
             const order2 = createDemoOrder(makerAddress, takerAddress);
 
-            // // ----------------------------------------------------------------------------
-            // // SCENARIO 1: Source Escrow (Maker locks funds, Taker withdraws with secret)
-            // // ----------------------------------------------------------------------------
-            // Logger.info(chalk.yellow('\n=== SCENARIO 1: Source Escrow Flow ===\n'));
-
-            // // Step 1: Calculate source escrow address
-            // // For the demo, we'll use zero fees
             const protocolFeeAmount = 0n;
             const integratorFeeAmount = 0n;
             const protocolFeeRecipient = addressToUint256('0x0000000000000000000000000000000000000000');
@@ -391,29 +384,42 @@ export class OrbisRelayerServer {
                 parameters: parameters,
             };
 
+            console.log('📍 Getting EVM source escrow address...');
             const srcEscrowAddress = await adapter.getSourceEscrowAddress(srcImmutables);
-            console.log('srcEscrowAddress', srcEscrowAddress);
+            console.log(`✅ EVM source escrow address: ${srcEscrowAddress}`);
 
             // Step 2: Maker sends funds to source escrow
+            console.log('\n💸 Maker sending funds to EVM source escrow...');
+            const totalFunding = order2.amount + order2.safetyDeposit;
+            console.log(`💰 Funding amount: ${(Number(order2.amount) / 1e18).toFixed(6)} ETH + safety deposit: ${(Number(order2.safetyDeposit) / 1e18).toFixed(6)} ETH = ${(Number(totalFunding) / 1e18).toFixed(6)} ETH`);
             const srcFundTx = await wallet.sendTransaction({
                 to: srcEscrowAddress,
-                value: order2.amount + order2.safetyDeposit,
+                value: totalFunding,
             });
             await srcFundTx.wait();
-            console.log('srcFundTx', srcFundTx);
+            console.log(`✅ EVM funds sent! TX: ${srcFundTx.hash}`);
 
             // Check escrow balance
             const escrowBalance = await provider.getBalance(srcEscrowAddress);
-            console.log('escrowBalance', escrowBalance);
+            console.log(`📊 EVM escrow balance: ${(Number(escrowBalance) / 1e18).toFixed(6)} ETH`);
 
-            // Step 3: Taker withdraws using secret
+            console.log('\n⏳ Waiting 5 seconds...');
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            console.log('🔓 Withdrawing from TON source escrow...');
+            await this.tonAdapter.withdrawFromSourceEscrow(sourceAddress, secretData.secret);
+
+            console.log('\n⏳ Waiting 5 seconds...');
+            await new Promise(resolve => setTimeout(resolve, 5000));
+            console.log('🔓 Withdrawing from EVM destination escrow...');
+            console.log(`🔑 Using secret: ${order2.secret}`);
+            console.log(`🔒 Secret hash: ${order2.secretHash}`);
             const withdrawResult = await adapter.withdrawFromSourceEscrow(
                 wallet,
                 srcEscrowAddress,
                 order2.secret,
                 srcImmutables
             );
-            console.log('withdrawResult', withdrawResult);
+            console.log(`✅ EVM withdrawal successful! TX: ${withdrawResult.transactionHash}`);
             
 
         } catch (error) {

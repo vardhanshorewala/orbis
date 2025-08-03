@@ -108,32 +108,25 @@ export async function main() {
             parameters: parameters,
         };
 
-        Logger.info('📍 Getting source escrow address...');
         const srcEscrowAddress = await adapter.getSourceEscrowAddress(srcImmutables);
-        Logger.info(`✅ Source escrow address: ${srcEscrowAddress}`);
 
         // Step 2: Maker sends funds to source escrow
-        Logger.info('\n💸 Maker sending funds to source escrow...');
         const srcFundTx = await wallet.sendTransaction({
             to: srcEscrowAddress,
             value: order.amount + order.safetyDeposit,
         });
         await srcFundTx.wait();
-        Logger.info(`✅ Funds sent! TX: ${srcFundTx.hash}`);
 
         // Check escrow balance
         const escrowBalance = await provider.getBalance(srcEscrowAddress);
-        Logger.info(`📊 Escrow balance: ${formatEther(escrowBalance)} ETH`);
 
         // Step 3: Taker withdraws using secret
-        Logger.info('\n🔓 Taker withdrawing from source escrow with secret...');
         const withdrawResult = await adapter.withdrawFromSourceEscrow(
             wallet,
             srcEscrowAddress,
             order.secret,
             srcImmutables
         );
-        Logger.info(`✅ Withdrawn! TX: ${withdrawResult.transactionHash}`);
 
 
         // ----------------------------------------------------------------------------
