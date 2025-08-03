@@ -1,7 +1,10 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import { Cell, beginCell } from '@ton/core';
+import { JsonRpcProvider, Wallet, keccak256, AbiCoder } from 'ethers';
 import { TonAdapter, TonAdapterConfig } from './adapters/TonAdapter';
+import { EvmAdapter, EscrowImmutables, CrossChainSwapConfig } from './adapters/EvmAdapter';
+import { loadConfig } from './config';
 import { 
     FusionOrder, 
     OrderStatus, 
@@ -61,6 +64,8 @@ export interface AcceptSecretRequest {
 export class OrbisRelayerServer {
     private app: express.Application;
     private tonAdapter?: TonAdapter;
+    private evmAdapter?: EvmAdapter;
+    private evmWallet?: Wallet;
     private orders: Map<string, FusionOrder> = new Map();
     private secrets: Map<string, SecretData> = new Map();
     private server?: any;
@@ -129,6 +134,26 @@ export class OrbisRelayerServer {
 
             this.tonAdapter = new TonAdapter(tonConfig);
             await this.tonAdapter.initialize();
+
+            // Initialize EVM adapter
+            const config = loadConfig();
+            const evmProvider = new JsonRpcProvider(config.evm.rpcUrl);
+            
+            // Create EVM wallet using config
+            if (config.evm.mnemonic) {
+                const hdWallet = Wallet.fromPhrase(config.evm.mnemonic);
+                this.evmWallet = new Wallet(hdWallet.privateKey, evmProvider);
+            } else {
+                this.evmWallet = new Wallet(config.evm.privateKey || '', evmProvider);
+            }
+            
+            const swapConfig: CrossChainSwapConfig = {
+                escrowFactoryAddress: config.evm.escrowFactory,
+                sourceChainId: config.evm.chainId,
+                destinationChainId: config.evm.chainId,
+            };
+            
+            this.evmAdapter = new EvmAdapter(evmProvider, swapConfig);
 
             console.log('Orbis Relayer Server initialized successfully');
             
@@ -247,7 +272,7 @@ export class OrbisRelayerServer {
 
             // Lock the source escrow
             console.log('🔐 Locking source escrow...');
-            // await this.tonAdapter.lockSourceEscrow(sourceAddress);
+            await this.tonAdapter.lockSourceEscrow(sourceAddress);
             console.log('✅ Source escrow locked successfully!');
 
             // Store order
@@ -263,13 +288,85 @@ export class OrbisRelayerServer {
                 order: this.serializeOrder(order),
                 contracts: {
                     sourceEscrow: sourceAddress.toString(),
-                    destinationEscrow: null // Only source for now
+                    destinationEscrow: null as string | null
                 },
                 secret: {
                     hash: secretData.hash
                     // Don't expose actual secret
                 }
             };
+            
+            // Create and lock EVM destination escrow
+            if (this.evmAdapter && this.evmWallet) {
+                console.log('🚀 Creating EVM destination escrow...');
+                
+                // Convert address to uint256
+                const addressToUint256 = (address: string): bigint => {
+                    // Handle TON address format (0:hex or EQxxx...)
+                    if (address.includes(':')) {
+                        // TON raw address format "0:hex"
+                        const hexPart = address.split(':')[1];
+                        return BigInt('0x' + hexPart);
+                    } else if (address.startsWith('EQ') || address.startsWith('UQ')) {
+                        // TON user-friendly address - convert to raw first
+                        // For now, use a placeholder - this would need proper TON address parsing
+                        return BigInt('0x' + address.slice(2).padStart(64, '0'));
+                    } else if (address.startsWith('0x')) {
+                        // EVM address
+                        return BigInt(address);
+                    } else {
+                        // Try to parse as hex
+                        return BigInt('0x' + address);
+                    }
+                };
+                
+                // Create ABI coder for parameters
+                const abiCoder = new AbiCoder();
+                const parameters = abiCoder.encode(
+                    ['uint256', 'uint256', 'uint256', 'uint256'],
+                    [0n, 0n, 0n, 0n] // Zero fees for now
+                );
+                
+                // Format secret properly for EVM (32 bytes with 0x prefix)
+                let evmSecret: string;
+                if (secretData.secret) {
+                    // Use existing secret from relayer, ensure proper padding
+                    let secretHex = secretData.secret.startsWith('0x') ? secretData.secret.slice(2) : secretData.secret;
+                    // Pad to 64 hex characters (32 bytes)
+                    secretHex = secretHex.padStart(64, '0');
+                    evmSecret = '0x' + secretHex;
+                } else {
+                    // Generate new secret in proper format (this shouldn't happen normally)
+                    evmSecret = '0x' + require('crypto').randomBytes(32).toString('hex');
+                }
+                
+                // Create destination escrow immutables
+                const dstImmutables: EscrowImmutables = {
+                    orderHash: keccak256(Buffer.from(orderId)),
+                    hashlock: keccak256(evmSecret), // Use the formatted secret
+                    maker: addressToUint256(order.maker),
+                    taker: addressToUint256(this.evmWallet.address), // EVM wallet as taker
+                    token: 0n, // Native ETH
+                    amount: order.takerAsset.amount,
+                    safetyDeposit: order.takerSafetyDeposit || BigInt('10000000000000000'), // 0.01 ETH default
+                    timelocks: BigInt(Math.floor(Date.now() / 1000) + order.timelockDuration),
+                    parameters: parameters,
+                };
+                
+                // Deploy destination escrow
+                const dstResult = await this.evmAdapter.createDestinationEscrow(
+                    this.evmWallet,
+                    dstImmutables,
+                    BigInt(Math.floor(Date.now() / 1000) + order.timelockDuration + 1800) // Source cancellation timestamp
+                );
+                
+                console.log(`✅ EVM destination escrow deployed at: ${dstResult.escrowAddress}`);
+                
+                // Update response to include destination escrow
+                response.contracts.destinationEscrow = dstResult.escrowAddress;
+            } else {
+                console.log('No EVM adapter or wallet found');
+            }
 
             res.status(201).json(response);
 
