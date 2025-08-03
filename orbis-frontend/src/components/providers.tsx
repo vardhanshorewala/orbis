@@ -3,9 +3,8 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { WagmiProvider } from 'wagmi';
 import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
-import { TonConnectUIProvider } from '@tonconnect/ui-react';
+import { TonConnectUIProvider, THEME } from '@tonconnect/ui-react';
 import { config } from '~/lib/wagmi';
-import { env } from '~/env';
 import '@rainbow-me/rainbowkit/styles.css';
 
 const queryClient = new QueryClient();
@@ -23,7 +22,17 @@ export function Providers({ children }: { children: React.ReactNode }) {
             overlayBlur: 'small',
           })}
         >
-          <TonConnectUIProvider manifestUrl={env.NEXT_PUBLIC_TON_MANIFEST_URL}>
+          <TonConnectUIProvider
+            manifestUrl="https://raw.githubusercontent.com/ton-connect/demo-dapp-with-react-ui/master/public/tonconnect-manifest.json"
+            uiPreferences={{
+              theme: THEME.DARK,
+            }}
+            actionsConfiguration={{
+              twaReturnUrl: 'https://t.me/orbis_swap_bot',
+              skipRedirectToWallet: 'never'
+            }}
+            enableAndroidBackHandler={false}
+          >
             {children}
           </TonConnectUIProvider>
         </RainbowKitProvider>

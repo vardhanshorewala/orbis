@@ -3,13 +3,27 @@
 import { useState } from 'react';
 import { useAccount as useEthAccount } from 'wagmi';
 import { useTonWallet } from '@tonconnect/ui-react';
+import { AdvancedSwapForm } from './advanced-swap-form';
+import { relayerAPI, formatRelayerError } from '../utils/relayer-api';
+import { generateSecret, toSmallestUnits } from '../utils/crypto';
+import type { SwapConfig, CreateOrderRequest, SecretData } from '../types/relayer';
+import { Network, AssetType } from '../types/relayer';
+import { DEFAULT_SWAP_CONFIG } from '../types/relayer';
 
 type SwapDirection = 'TON_TO_ETH' | 'ETH_TO_TON';
+
+interface SwapState {
+  orderId?: string;
+  secretData?: SecretData;
+  status: 'idle' | 'creating' | 'created' | 'error';
+  error?: string;
+}
 
 export function SwapWidget() {
   const [amount, setAmount] = useState('');
   const [direction, setDirection] = useState<SwapDirection>('TON_TO_ETH');
-  const [isSwapping, setIsSwapping] = useState(false);
+  const [config, setConfig] = useState<SwapConfig>(DEFAULT_SWAP_CONFIG);
+  const [swapState, setSwapState] = useState<SwapState>({ status: 'idle' });
 
   const { address: ethAddress, isConnected: isEthConnected } = useEthAccount();
   const tonWallet = useTonWallet();
@@ -18,6 +32,7 @@ export function SwapWidget() {
 
   const handleSwitch = () => {
     setDirection(direction === 'TON_TO_ETH' ? 'ETH_TO_TON' : 'TON_TO_ETH');
+    setSwapState({ status: 'idle' }); // Reset swap state when switching
   };
 
   const handleSwap = async () => {
@@ -36,22 +51,61 @@ export function SwapWidget() {
       return;
     }
 
-    setIsSwapping(true);
+    setSwapState({ status: 'creating' });
     
     try {
-      // TODO: Implement actual swap logic here
-      // This would involve:
-      // 1. For TON_TO_ETH: Send TON to source escrow contract
-      // 2. For ETH_TO_TON: Send ETH to destination escrow contract
-      // 3. Wait for confirmations
-      // 4. Trigger cross-chain message
+      // Generate secret on frontend
+      const secretData = generateSecret();
+      console.log('Generated secret:', { hash: secretData.hash, secret: '[HIDDEN]' });
+
+      // Prepare order request
+      const orderRequest: CreateOrderRequest = {
+        maker: direction === 'TON_TO_ETH' ? tonWallet!.account.address : ethAddress!,
+        makerAsset: {
+          type: direction === 'TON_TO_ETH' ? AssetType.NATIVE_TON : AssetType.NATIVE_ETH,
+          address: direction === 'TON_TO_ETH' ? 'TON' : 'ETH',
+          amount: toSmallestUnits(amount, direction === 'TON_TO_ETH' ? 9 : 18),
+          network: direction === 'TON_TO_ETH' ? Network.TON_TESTNET : Network.ETHEREUM_SEPOLIA
+        },
+        takerAsset: {
+          type: direction === 'TON_TO_ETH' ? AssetType.NATIVE_ETH : AssetType.NATIVE_TON,
+          address: direction === 'TON_TO_ETH' ? 'ETH' : 'TON',
+          amount: toSmallestUnits(amount, direction === 'TON_TO_ETH' ? 18 : 9), // 1:1 rate for demo
+          network: direction === 'TON_TO_ETH' ? Network.ETHEREUM_SEPOLIA : Network.TON_TESTNET
+        },
+        sourceChain: direction === 'TON_TO_ETH' ? Network.TON_TESTNET : Network.ETHEREUM_SEPOLIA,
+        destinationChain: direction === 'TON_TO_ETH' ? Network.ETHEREUM_SEPOLIA : Network.TON_TESTNET,
+        refundAddress: direction === 'TON_TO_ETH' ? tonWallet!.account.address : 'EQD4FPq-PRDieyQKkizFTRtSDyucUIqrj0v_zXJmqaDp6_0t',
+        targetAddress: direction === 'TON_TO_ETH' ? 'EQD4FPq-PRDieyQKkizFTRtSDyucUIqrj0v_zXJmqaDp6_0t' : tonWallet?.account.address || 'EQD4FPq-PRDieyQKkizFTRtSDyucUIqrj0v_zXJmqaDp6_0t',
+        timelockDuration: config.timelockDuration,
+        finalityTimelock: config.finalityTimelock,
+        exclusivePeriod: config.exclusivePeriod,
+        makerSafetyDeposit: config.makerSafetyDeposit,
+        secretHash: secretData.hash // Send hash from frontend
+      };
+
+      console.log('Creating order:', orderRequest);
+
+      // Create order on relayer
+      const response = await relayerAPI.createOrder(orderRequest);
       
-      alert(`Swap functionality coming soon! You would swap ${amount} ${direction === 'TON_TO_ETH' ? 'TON' : 'ETH'}`);
+      console.log('Order created successfully:', response);
+
+      setSwapState({
+        status: 'created',
+        orderId: response.orderId,
+        secretData
+      });
+
+      // Store secret locally (in production, this should be more secure)
+      localStorage.setItem(`secret_${response.orderId}`, JSON.stringify(secretData));
+
     } catch (error) {
       console.error('Swap error:', error);
-      alert('Swap failed. Please try again.');
-    } finally {
-      setIsSwapping(false);
+      setSwapState({
+        status: 'error',
+        error: formatRelayerError(error)
+      });
     }
   };
 
@@ -60,8 +114,12 @@ export function SwapWidget() {
   const fromColor = direction === 'TON_TO_ETH' ? 'cyan' : 'purple';
   const toColor = direction === 'TON_TO_ETH' ? 'purple' : 'cyan';
 
+  const isSwapping = swapState.status === 'creating';
+  const hasError = swapState.status === 'error';
+  const isCompleted = swapState.status === 'created';
+
   return (
-    <div className="relative mx-auto w-full max-w-md overflow-hidden rounded-3xl border border-gray-800 bg-gray-900/50 p-8 shadow-2xl backdrop-blur-xl">
+    <div className="relative mx-auto w-full max-w-lg overflow-hidden rounded-3xl border border-gray-800 bg-gray-900/50 p-8 shadow-2xl backdrop-blur-xl">
       {/* Background gradient effects */}
       <div className="absolute -left-20 -top-20 h-40 w-40 rounded-full bg-purple-500/20 blur-3xl" />
       <div className="absolute -bottom-20 -right-20 h-40 w-40 rounded-full bg-cyan-500/20 blur-3xl" />
@@ -69,6 +127,43 @@ export function SwapWidget() {
       <h2 className="relative mb-8 text-center text-2xl font-bold text-white">
         Cross-Chain Swap
       </h2>
+      
+      {/* Success Message */}
+      {isCompleted && swapState.orderId && (
+        <div className="mb-6 rounded-xl border border-green-500/20 bg-green-500/10 p-4 backdrop-blur">
+          <div className="flex items-center gap-2 text-green-300 mb-2">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="font-semibold">Order Created Successfully!</span>
+          </div>
+          <p className="text-sm text-green-200">
+            Order ID: <code className="bg-green-900/30 px-2 py-1 rounded text-xs">{swapState.orderId}</code>
+          </p>
+          <p className="text-xs text-green-300 mt-2">
+            Secret stored locally. Contracts are being deployed...
+          </p>
+        </div>
+      )}
+
+      {/* Error Message */}
+      {hasError && (
+        <div className="mb-6 rounded-xl border border-red-500/20 bg-red-500/10 p-4 backdrop-blur">
+          <div className="flex items-center gap-2 text-red-300 mb-2">
+            <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="font-semibold">Swap Failed</span>
+          </div>
+          <p className="text-sm text-red-200">{swapState.error}</p>
+          <button
+            onClick={() => setSwapState({ status: 'idle' })}
+            className="mt-2 text-xs text-red-300 hover:text-red-200 underline"
+          >
+            Try Again
+          </button>
+        </div>
+      )}
       
       {/* From Section */}
       <div className="relative mb-6">
@@ -81,7 +176,8 @@ export function SwapWidget() {
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             placeholder="0.0"
-            className="w-full bg-transparent px-6 py-4 pr-20 text-2xl font-semibold text-white placeholder-gray-500 focus:outline-none"
+            disabled={isSwapping || isCompleted}
+            className="w-full bg-transparent px-6 py-4 pr-20 text-2xl font-semibold text-white placeholder-gray-500 focus:outline-none disabled:opacity-50"
           />
           <div className="absolute right-4 top-1/2 -translate-y-1/2">
             <span className={`gradient-${fromColor === 'cyan' ? 'accent' : 'primary'} text-gradient text-xl font-bold`}>
@@ -105,7 +201,8 @@ export function SwapWidget() {
       <div className="relative z-10 mb-6 flex justify-center">
         <button
           onClick={handleSwitch}
-          className="gradient-secondary glow-secondary group rounded-2xl p-4 transition-all hover:scale-110"
+          disabled={isSwapping || isCompleted}
+          className="gradient-secondary glow-secondary group rounded-2xl p-4 transition-all hover:scale-110 disabled:opacity-50 disabled:hover:scale-100"
         >
           <svg
             className="h-6 w-6 text-white transition-transform group-hover:rotate-180"
@@ -148,20 +245,25 @@ export function SwapWidget() {
         </p>
       </div>
 
+      {/* Advanced Options */}
+      <AdvancedSwapForm config={config} onConfigChange={setConfig} />
+
       {/* Swap Button */}
       <button
         onClick={handleSwap}
         disabled={
           isSwapping ||
+          isCompleted ||
           !amount ||
           parseFloat(amount) <= 0 ||
           (direction === 'TON_TO_ETH' && !isTonConnected) ||
           (direction === 'ETH_TO_TON' && !isEthConnected)
         }
         className={`
-          relative w-full overflow-hidden rounded-2xl py-4 text-lg font-bold transition-all
+          relative w-full overflow-hidden rounded-2xl py-4 text-lg font-bold transition-all mt-6
           ${
             isSwapping ||
+            isCompleted ||
             !amount ||
             parseFloat(amount) <= 0 ||
             (direction === 'TON_TO_ETH' && !isTonConnected) ||
@@ -173,14 +275,16 @@ export function SwapWidget() {
       >
         <span className="relative z-10">
           {isSwapping
-            ? 'Processing...'
+            ? 'Creating Order...'
+            : isCompleted
+            ? 'Order Created ✓'
             : !amount || parseFloat(amount) <= 0
             ? 'Enter Amount'
             : direction === 'TON_TO_ETH' && !isTonConnected
             ? 'Connect TON Wallet'
             : direction === 'ETH_TO_TON' && !isEthConnected
             ? 'Connect Ethereum Wallet'
-            : `Swap ${fromToken} to ${toToken}`}
+            : `Create ${fromToken} → ${toToken} Order`}
         </span>
       </button>
 
@@ -195,6 +299,11 @@ export function SwapWidget() {
             <strong>Testnet Only:</strong> Using Sepolia ETH & TON Testnet
           </span>
         </p>
+        {isCompleted && (
+          <p className="mt-2 text-xs text-purple-200">
+            Your secret is stored locally. Keep this browser tab open until the swap completes.
+          </p>
+        )}
       </div>
     </div>
   );
